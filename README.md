@@ -26,6 +26,8 @@ npm start              # http://localhost:3000
 - **Difficulté des platines à faire** : chaque jeu commencé est classé (Facile, Faisable, Coriace, Légendaire) selon le succès restant le plus rare. On obtient une tier list, un tri « Platine le plus accessible » dans la bibliothèque et les 3 « prochains platines » les plus à portée.
 - **Succès ajoutés par une mise à jour** : Steam ne donne pas la date d'ajout des succès, donc l'app mémorise le nombre total de succès de chaque jeu dans le navigateur et repère les hausses d'une visite à l'autre. Les platines « perdus » sont signalés « à reconquérir ».
 - **Fiche jeu** : les succès manquants passent en premier, du plus accessible au plus rare.
+- **Salle des trophées** (`#/u/<steamid>/trophees`) : une page plein écran avec une plaque par platine, regroupées par année (numéro, date, durée de la chasse, rareté)
+- **Numéro de platine** chronologique et **certificat de platine** dans la fiche des jeux platinés
 - **Carte de chasseur** : une image PNG de 1200×630 (rang, platines, plus rares) à copier dans Discord ou à télécharger
 - Succès débloqués par mois, top 10 du temps de jeu, répartition de la complétion
 - Anecdotes : premier succès, journée record, platine le plus rapide ou le plus long, vieil amour délaissé…

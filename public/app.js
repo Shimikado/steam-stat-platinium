@@ -19,11 +19,13 @@ import {
   fmtRarity,
   DIFFICULTY_TIERS,
   difficultyTier,
+  fmtDuration,
 } from './utils.js';
 import { celebrate } from './celebrate.js';
 import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
+import { hallHTML, revealPlaques } from './hall.js';
 
 const app = $('#app');
 const SCAN_BATCH = 25;
@@ -63,6 +65,7 @@ const state = {
   newPlats: new Set(), // platines obtenus depuis la dernière visite
   scan: { done: 0, total: 0, running: false, error: null },
   lib: { filter: 'all', sort: 'playtime', search: '', limit: LIB_PAGE },
+  hallOpen: false, // salle des trophées affichée (#/u/<id>/trophees)
   token: 0,
 };
 
@@ -116,7 +119,13 @@ function compute() {
     else s.notStarted++;
   }
 
-  s.platinum.sort((x, y) => y.date - x.date);
+  // Numéro de platine chronologique (n°1 = le tout premier) et durée de la chasse (premier succès → platine).
+  s.platinum.sort((x, y) => x.date - y.date);
+  s.platinum.forEach((p, i) => {
+    p.num = i + 1;
+    p.hunt = p.date - (p.a.times[0] ?? p.date);
+  });
+  s.platinum.reverse();
   s.progress.sort((x, y) => y.a.percent - x.a.percent || x.a.total - x.a.unlocked - (y.a.total - y.a.unlocked));
   s.times.sort((x, y) => x[0] - y[0]);
 
@@ -151,16 +160,19 @@ async function boot() {
 }
 
 function route() {
-  const m = /^#\/u\/(\d{17})/.exec(location.hash);
+  const m = /^#\/u\/(\d{17})(\/trophees)?/.exec(location.hash);
   const id = m?.[1] ?? state.me;
+  state.hallOpen = Boolean(m?.[2]);
   renderTopbar(id);
   if (!id) {
+    renderHall();
     state.token++;
     state.steamid = null;
     renderLanding();
     return;
   }
   if (id !== state.steamid || !state.profile) loadProfile(id);
+  renderHall();
 }
 
 function showBanner(msg) {
@@ -270,6 +282,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   lastRankKey = '';
   lastPlatKey = '';
   lastTierKey = '';
+  lastHallKey = '';
   lastNext = undefined;
   window.scrollTo({ top: 0 });
   app.innerHTML = `<div class="loading"><div class="spinner"></div>Chargement de la bibliothèque…</div>`;
@@ -389,7 +402,7 @@ function renderDashboard() {
     <section class="tiles" id="tiles"></section>
 
     <section class="section trophy-case">
-      <div class="section-head"><h2>Vitrine des platines<span class="count" id="platCount"></span></h2><p>100 % des succès débloqués · du plus récent au plus ancien</p></div>
+      <div class="section-head"><h2>Vitrine des platines<span class="count" id="platCount"></span></h2><a class="btn hall-btn" href="#/u/${state.steamid}/trophees">${icon('trophy')} Entrer dans la salle des trophées</a></div>
       <div class="plat-features" id="platFeature"></div>
       <div id="plat"></div>
     </section>
@@ -479,6 +492,7 @@ function update() {
   renderCharts(s);
   renderFacts(s);
   renderLibrary(s);
+  renderHall(s);
 }
 
 function renderScan() {
@@ -738,6 +752,50 @@ function renderTiers(s) {
     .join('')}</div>`;
 }
 
+// ---------------------------------------------------------------- salle des trophées
+
+const hall = $('#hall');
+let lastHallKey = '';
+
+function renderHall(s) {
+  if (!state.hallOpen || !state.profile) {
+    if (!hall.hidden) {
+      hall.hidden = true;
+      document.body.classList.remove('hall-open');
+      lastHallKey = '';
+    }
+    return;
+  }
+  s ??= compute();
+  const scanning = state.scan.running ? `Préparation de la salle… ${state.scan.done} / ${state.scan.total} jeux analysés` : '';
+  const key = `${state.steamid}|${scanning}|${s.platinum.map((p) => p.g.appid).join(',')}|${state.rarity.size}`;
+  if (key === lastHallKey) return;
+  const firstOpen = hall.hidden;
+  lastHallKey = key;
+
+  hall.innerHTML = `<div class="hall-inner">${hallHTML({
+    steamid: state.steamid,
+    player: state.profile.player,
+    platinum: s.platinum,
+    rarity: state.rarity,
+    pill: rarityPill,
+    scanning,
+  })}</div>`;
+  hall.hidden = false;
+  document.body.classList.add('hall-open');
+  if (firstOpen) hall.scrollTop = 0;
+  revealPlaques(hall);
+}
+
+hall.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-appid]');
+  if (el) openGame(Number(el.dataset.appid));
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.hallOpen && !document.querySelector('dialog[open]')) location.hash = `#/u/${state.steamid}`;
+});
+
 // ---------------------------------------------------------------- prochain platine
 
 let lastNext;
@@ -929,13 +987,13 @@ function rarityPill(appid, { long = false } = {}) {
   return `<span class="rarity-pill tier-${tier.id}" title="Au plus ${fmtRarity(p)} des joueurs ont platiné ce jeu (d’après son succès le plus rare)">${text}</span>`;
 }
 
-function featureCard(label, { g, a, date }) {
+function featureCard(label, { g, a, date, num }) {
   return `
     <button class="plat-feature" data-appid="${g.appid}" type="button">
       <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], g.name)}</div>
       <span class="feature-sparks" aria-hidden="true">${SPARKS.map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;animation-delay:${d}s">${icon('sparkle')}</i>`).join('')}</span>
       <span class="feature-body">
-        <span class="eyebrow">${icon('sparkle')} ${label}</span>
+        <span class="eyebrow">${icon('sparkle')} ${label} · n°${num}</span>
         <span class="feature-title">${esc(g.name)}</span>
         <span class="feature-meta">
           <span>Platiné le ${fmtDate(date)}</span>
@@ -979,7 +1037,7 @@ function renderPlatinum(s) {
   }
 
   el.innerHTML = `<div class="plat-grid">${s.platinum
-    .map(({ g, date }) => {
+    .map(({ g, date, num }) => {
       const tier = rarityTier(state.rarity.get(g.appid));
       return `
       <button class="holo ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button">
@@ -992,7 +1050,7 @@ function renderPlatinum(s) {
           ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
         </span>
         <span class="meta">${esc(g.name)}</span>
-        <span class="sub">Platiné le ${fmtDate(date)}</span>
+        <span class="sub"><span class="plat-num">n°${num}</span> · ${fmtDate(date)}</span>
       </button>`;
     })
     .join('')}</div>`;
@@ -1410,6 +1468,27 @@ modal.addEventListener('click', (e) => {
   if (e.target === modal || e.target.closest('.modal-close')) modal.close();
 });
 
+/** Certificat de platine affiché en tête de la fiche d'un jeu platiné. */
+function certificate(g, a) {
+  const p = compute().platinum.find((x) => x.g.appid === g.appid);
+  if (!p) return '';
+  return `
+    <div class="cert">
+      <span class="cert-medal" aria-hidden="true">${icon('trophy')}${[0, 1, 2, 3, 4, 5, 6, 7].map((k) => `<i style="--a:${k * 45}deg"></i>`).join('')}</span>
+      <span class="cert-text">
+        <span class="cert-num">Platine n°${p.num}</span>
+        <span class="cert-date">Obtenu le ${fmtDate(p.date)}</span>
+      </span>
+      ${rarityPill(g.appid, { long: true })}
+    </div>
+    <div class="cert-stats">
+      <span><b>${fmtDuration(p.hunt)}</b>de chasse</span>
+      ${g.playtime ? `<span><b>${fmtHours(g.playtime)}</b>de jeu</span>` : ''}
+      <span><b>${a.total}</b>succès</span>
+      <span><b>${fmtDate(a.times[0])}</b>premier succès</span>
+    </div>`;
+}
+
 async function openGame(appid) {
   const g = state.profile?.games.find((x) => x.appid === appid);
   if (!g) return;
@@ -1424,7 +1503,7 @@ async function openGame(appid) {
     <div class="modal-head">
       ${
         st.kind === 'platinum'
-          ? `<div class="plat-ribbon">${icon('trophy')}<span><strong>Platiné</strong> le ${fmtDate(a.times.at(-1))}</span>${rarityPill(g.appid, { long: true })}</div>`
+          ? certificate(g, a)
           : ''
       }
       <h2 id="modalTitle">${esc(g.name)}</h2>

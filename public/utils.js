@@ -68,4 +68,15 @@ export function difficultyTier(hardest) {
   return DIFFICULTY_TIERS.find((t) => hardest >= t.min);
 }
 
+/** Durée lisible (« 3 jours », « 5 mois »…) à partir d'un nombre de secondes. */
+export function fmtDuration(sec) {
+  const h = sec / 3600;
+  if (h < 1) return 'moins d’1 h';
+  if (h < 48) return `${Math.round(h)} h`;
+  const d = h / 24;
+  if (d < 60) return `${Math.round(d)} jours`;
+  if (d < 730) return `${Math.round(d / 30.44)} mois`;
+  return `${(d / 365.25).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} ans`;
+}
+
 export const fmtRarity = (p) => `${p < 10 ? p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(p)} %`;
