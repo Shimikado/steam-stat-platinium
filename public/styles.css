@@ -38,13 +38,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 640px at 85% -10%, rgb(var(--ambient-rgb) / 0.16), transparent 60%),
-    radial-gradient(900px 560px at -10% 12%, rgba(232, 71, 111, 0.09), transparent 60%),
-    radial-gradient(900px 700px at 50% 110%, rgb(var(--ambient-rgb) / 0.07), transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
-  transition: background-color 0.6s ease;
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font);
   font-size: 15px;
@@ -78,6 +72,27 @@ svg {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Fond procédural (backdrop.js) + grain discret par-dessus */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27160%27 height=%27160%27%3E%3Cfilter id=%27n%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.85%27 numOctaves=%272%27 stitchTiles=%27stitch%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url(%23n)%27/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
 }
 
 /* ---------------------------------------------------------------- top bar */
@@ -351,46 +366,6 @@ main {
 }
 
 /* ---------------------------------------------------------------- profile */
-
-/* Bannière floutée derrière l'en-tête, tirée du visuel d'un jeu du profil */
-main {
-  position: relative;
-  isolation: isolate;
-}
-
-.profile-banner {
-  position: absolute;
-  top: -80px;
-  left: 50%;
-  z-index: -1;
-  width: min(1400px, 100vw);
-  height: 520px;
-  transform: translateX(-50%);
-  overflow: hidden;
-  pointer-events: none;
-  -webkit-mask-image: radial-gradient(70% 80% at 50% 20%, #000 30%, transparent 80%);
-  mask-image: radial-gradient(70% 80% at 50% 20%, #000 30%, transparent 80%);
-}
-
-.profile-banner img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: blur(36px) saturate(1.3);
-  opacity: 0.42;
-  transform: scale(1.15);
-  animation: banner-in 1.2s ease both;
-}
-
-.profile-banner img.broken {
-  display: none;
-}
-
-@keyframes banner-in {
-  from {
-    opacity: 0;
-  }
-}
 
 .profile {
   display: flex;

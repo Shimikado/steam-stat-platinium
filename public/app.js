@@ -235,13 +235,11 @@ function renderTopbar(viewing) {
 
 // ---------------------------------------------------------------- accueil
 
-/** Teinte la page et la bannière d'en-tête avec le visuel d'un jeu (dernier platine ou jeu le plus joué). */
+/** Teinte le fond de la page avec la couleur dominante d'un jeu (dernier platine ou jeu le plus joué). */
 let ambientAppid = null;
 function setAmbient(appid) {
   if (!appid || appid === ambientAppid) return;
   ambientAppid = appid;
-  const banner = $('#profileBanner');
-  if (banner) banner.innerHTML = artImg(appid, ['library_hero.jpg', 'header.jpg'], '');
   updateAmbient(state.steamid, appid);
 }
 
@@ -406,7 +404,6 @@ function renderDashboard() {
 
   ambientAppid = null;
   app.innerHTML = `
-    <div class="profile-banner" id="profileBanner" aria-hidden="true"></div>
     <section class="profile">
       <div class="avatar-wrap" id="avatarWrap"><img class="avatar" src="${esc(player.avatar)}" alt=""></div>
       <div class="profile-main">

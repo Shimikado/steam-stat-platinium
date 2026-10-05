@@ -1,7 +1,7 @@
 import { ART_HOSTS } from './utils.js';
+import { setBackdropColor } from './backdrop.js';
 
-// Ambiance du profil : la couleur dominante d'un visuel de jeu teinte les lueurs de la page
-// et la bannière floutée derrière l'en-tête.
+// Ambiance du profil : la couleur dominante d'un visuel de jeu teinte le fond procédural de la page.
 
 const CACHE_KEY = 'steam-stats:ambient:v1'; // appid -> [r, g, b]
 const DEFAULT = [255, 128, 92];
@@ -105,6 +105,7 @@ export async function ambientColor(appid) {
 export function applyAmbient(color) {
   const [r, g, b] = color ?? DEFAULT;
   document.documentElement.style.setProperty('--ambient-rgb', `${r} ${g} ${b}`);
+  setBackdropColor([r, g, b]);
 }
 
 // Dernière ambiance de chaque profil, pour l'appliquer dès l'ouverture sans changement visible ensuite.
