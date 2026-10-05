@@ -622,6 +622,67 @@
   opacity: 0.85;
 }
 
+/* ---------------------------------------------------------------- platines bloqués par un DLC */
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+
+.btn-sm svg {
+  width: 14px;
+  height: 14px;
+}
+
+.notice-dlc {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.notice-dlc.is-on {
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #ffc9a3;
+  background: rgba(255, 150, 90, 0.08);
+  border: 1px solid rgba(255, 150, 90, 0.3);
+}
+
+.notice-dlc.is-on > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.notice-dlc.is-on > span {
+  flex: 1;
+}
+
+.dlc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffc9a3;
+  background: rgba(255, 150, 90, 0.12);
+}
+
+.dlc-tag svg {
+  width: 11px;
+  height: 11px;
+}
+
+.dlc-card .bar > i {
+  background: #ff9a5a;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .celebration-glow,
   .new-tag {

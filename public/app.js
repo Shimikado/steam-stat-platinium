@@ -26,6 +26,7 @@ import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
+import { loadDlcBlocked, toggleDlcBlocked } from './dlc.js';
 
 const app = $('#app');
 const SCAN_BATCH = 25;
@@ -65,6 +66,7 @@ const state = {
   newPlats: new Set(), // platines obtenus depuis la dernière visite
   scan: { done: 0, total: 0, running: false, error: null },
   lib: { filter: 'all', sort: 'playtime', search: '', limit: LIB_PAGE },
+  dlcBlocked: new Set(), // jeux dont le platine est bloqué par un DLC (marquage manuel)
   hallOpen: false, // salle des trophées affichée (#/u/<id>/trophees)
   token: 0,
 };
@@ -273,6 +275,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
+  state.dlcBlocked = loadDlcBlocked(steamid);
   state.friends = [];
   state.next = null;
   state.newPlats = new Set();
@@ -283,6 +286,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   lastPlatKey = '';
   lastTierKey = '';
   lastHallKey = '';
+  lastDlcKey = '';
   lastNext = undefined;
   window.scrollTo({ top: 0 });
   app.innerHTML = `<div class="loading"><div class="spinner"></div>Chargement de la bibliothèque…</div>`;
@@ -422,6 +426,11 @@ function renderDashboard() {
       <div id="tiers"></div>
     </section>
 
+    <section class="section" id="dlcSection" hidden>
+      <div class="section-head"><h2>Bloqués par un DLC<span class="count" id="dlcCount"></span></h2><p>Marqués à la main · exclus de la tier list et du prochain platine</p></div>
+      <div id="dlc"></div>
+    </section>
+
     <section class="section">
       <div class="section-head"><h2>Presque platinés</h2><p>75 % de complétion ou plus — le sprint final</p></div>
       <div id="nearly"></div>
@@ -488,6 +497,7 @@ function update() {
   renderAdded();
   renderNext();
   renderTiers(s);
+  renderDlc(s);
   renderNearly(s);
   renderCharts(s);
   renderFacts(s);
@@ -707,8 +717,8 @@ async function loadDifficulty(token) {
 let lastTierKey = '';
 function renderTiers(s) {
   const el = $('#tiers');
-  const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null);
-  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}`;
+  const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null && !state.dlcBlocked.has(x.g.appid));
+  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${state.dlcBlocked.size}`;
   if (key === lastTierKey) return;
   lastTierKey = key;
 
@@ -796,6 +806,35 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.hallOpen && !document.querySelector('dialog[open]')) location.hash = `#/u/${state.steamid}`;
 });
 
+// ---------------------------------------------------------------- platines bloqués par un DLC
+
+let lastDlcKey = '';
+function renderDlc(s) {
+  const list = [...s.progress, ...state.profile.games.filter((g) => g.status.kind === 'notstarted').map((g) => ({ g, a: g.status.a }))]
+    .filter((x) => state.dlcBlocked.has(x.g.appid))
+    .sort((x, y) => y.a.percent - x.a.percent);
+  const key = list.map((x) => x.g.appid).join(',');
+  if (key === lastDlcKey) return;
+  lastDlcKey = key;
+
+  $('#dlcSection').hidden = !list.length;
+  $('#dlcCount').textContent = list.length ? ` ${list.length}` : '';
+  $('#dlc').innerHTML = `<div class="near-list">${list
+    .map(({ g, a }) => {
+      const left = a.total - a.unlocked;
+      return `
+      <button class="near dlc-card" data-appid="${g.appid}" type="button">
+        <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</div>
+        <div style="min-width:0">
+          <div class="near-name">${esc(g.name)}</div>
+          <div class="near-meta"><span><strong>${a.unlocked}</strong> / ${a.total} · ${left} restant${left > 1 ? 's' : ''}</span><strong>${fmtPct(a.percent)}</strong></div>
+          <div class="bar"><i style="width:${a.percent}%"></i></div>
+        </div>
+      </button>`;
+    })
+    .join('')}</div>`;
+}
+
 // ---------------------------------------------------------------- prochain platine
 
 let lastNext;
@@ -813,7 +852,8 @@ function renderNext() {
 }
 
 async function loadNext(token) {
-  const next = await findNextPlatinums(state.steamid, compute().progress, state.diff);
+  const progress = compute().progress.filter((x) => !state.dlcBlocked.has(x.g.appid));
+  const next = await findNextPlatinums(state.steamid, progress, state.diff);
   if (token !== state.token) return;
   state.next = next;
   update();
@@ -1377,8 +1417,8 @@ const SORTS = {
   recent: (a, b) => b.lastPlayed - a.lastPlayed,
   // Platines restants les plus accessibles d'abord ; platinés et jeux sans données en fin de liste.
   accessible: (a, b) => {
-    const da = a.status.kind === 'platinum' ? null : state.diff.get(a.appid);
-    const db = b.status.kind === 'platinum' ? null : state.diff.get(b.appid);
+    const da = a.status.kind === 'platinum' || state.dlcBlocked.has(a.appid) ? null : state.diff.get(a.appid);
+    const db = b.status.kind === 'platinum' || state.dlcBlocked.has(b.appid) ? null : state.diff.get(b.appid);
     return (db?.hardest ?? -1) - (da?.hardest ?? -1) || (da?.remaining ?? 1e9) - (db?.remaining ?? 1e9) || b.playtime - a.playtime;
   },
   name: (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }),
@@ -1438,9 +1478,11 @@ function gameCard(g) {
     tag = `<span class="tag">Sans succès</span>`;
   }
 
-  const tier = st.kind === 'progress' || st.kind === 'notstarted' ? difficultyTier(state.diff.get(g.appid)?.hardest) : null;
+  const blocked = st.kind !== 'platinum' && state.dlcBlocked.has(g.appid);
+  const tier = !blocked && (st.kind === 'progress' || st.kind === 'notstarted') ? difficultyTier(state.diff.get(g.appid)?.hardest) : null;
   const added = state.added.get(g.appid);
   const foot = [
+    blocked ? `<span class="dlc-tag">${icon('lock')} DLC requis</span>` : '',
     tier ? `<span class="difficulty diff-${tier.id}">${tier.label}</span>` : '',
     added ? `<span class="added-tag">${addedLabel(added)}</span>` : '',
   ].join('');
@@ -1466,6 +1508,15 @@ function gameCard(g) {
 const modal = $('#gameModal');
 modal.addEventListener('click', (e) => {
   if (e.target === modal || e.target.closest('.modal-close')) modal.close();
+  const toggle = e.target.closest('[data-dlc-toggle]');
+  if (toggle) {
+    const appid = Number(toggle.dataset.dlcToggle);
+    const g = state.profile.games.find((x) => x.appid === appid);
+    state.dlcBlocked = toggleDlcBlocked(state.steamid, appid);
+    $('#gameNotices').innerHTML = gameNotices(g, statusOf(g));
+    update();
+    loadNext(state.token);
+  }
 });
 
 /** Certificat de platine affiché en tête de la fiche d'un jeu platiné. */
@@ -1514,7 +1565,7 @@ async function openGame(appid) {
         <a href="https://store.steampowered.com/app/${g.appid}" target="_blank" rel="noopener">Page Steam ↗</a>
       </div>
       ${a?.total ? `<div class="bar ${st.kind === 'platinum' ? 'is-plat' : ''}"><i style="width:${a.percent}%"></i></div>` : ''}
-      ${gameNotices(g, st)}
+      <div id="gameNotices">${gameNotices(g, st)}</div>
     </div>
     <div class="modal-body" id="modalBody">
       ${g.hasStats ? `<div class="loading" style="min-height:160px"><div class="spinner"></div></div>` : `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`}
@@ -1557,6 +1608,13 @@ function gameNotices(g, st) {
       <span class="difficulty diff-${tier.id}">${tier.label}</span>
       <span>Il te reste <strong>${d.remaining} succès</strong> pour le platine · le plus dur est débloqué par ${fmtRarity(d.hardest)} des joueurs</span>
     </div>`);
+  }
+  if (st.kind === 'progress' || st.kind === 'notstarted') {
+    out.push(
+      state.dlcBlocked.has(g.appid)
+        ? `<div class="notice-dlc is-on">${icon('lock')}<span><strong>Platine bloqué par un DLC</strong> · exclu de la tier list et du prochain platine</span><button class="btn btn-sm" type="button" data-dlc-toggle="${g.appid}">Retirer le marquage</button></div>`
+        : `<div class="notice-dlc"><span>Un DLC que tu n’as pas t’empêche de platiner ce jeu ?</span><button class="btn btn-sm" type="button" data-dlc-toggle="${g.appid}">${icon('lock')} Marquer comme bloqué par un DLC</button></div>`,
+    );
   }
   return out.join('');
 }
