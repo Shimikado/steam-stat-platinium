@@ -1,0 +1,17 @@
+# Déploiement Render (Blueprint) : New + → Blueprint → choisir ce dépôt.
+services:
+  - type: web
+    name: steam-stats
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: STEAM_API_KEY
+        sync: false # à saisir dans le tableau de bord Render, jamais dans le dépôt
+      - key: SESSION_SECRET
+        generateValue: true

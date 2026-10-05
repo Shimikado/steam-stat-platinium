@@ -1,0 +1,21 @@
+{
+  "name": "steam-stats",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vitrine de bibliothèque Steam : jeux platinés, complétion des succès et statistiques de jeu",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "demo": "node server.js --demo"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "dependencies": {
+    "cookie-session": "^2.1.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.0"
+  }
+}

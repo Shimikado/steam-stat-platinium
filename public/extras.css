@@ -1,0 +1,550 @@
+/* Célébrations, badges, prochain platine et carte de chasseur. */
+
+/* ---------------------------------------------------------------- célébration */
+
+.confetti {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.celebration {
+  width: min(520px, calc(100vw - 32px));
+  padding: 36px 28px 28px;
+  border: 1px solid rgba(220, 232, 250, 0.45);
+  border-radius: 24px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(185, 203, 228, 0.16), transparent 60%),
+    var(--surface);
+  color: var(--text);
+  text-align: center;
+  overflow: hidden;
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.65),
+    0 0 80px rgba(185, 203, 228, 0.15);
+}
+
+.celebration[open] {
+  animation: celebration-in 0.45s var(--ease-out);
+}
+
+.celebration::backdrop {
+  background: rgba(3, 6, 12, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+@keyframes celebration-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.94);
+  }
+}
+
+.celebration-glow {
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  width: 360px;
+  height: 360px;
+  margin-left: -180px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    rgba(220, 232, 250, 0.22),
+    transparent 30%,
+    rgba(197, 139, 255, 0.18),
+    transparent 60%,
+    rgba(110, 200, 255, 0.2),
+    transparent
+  );
+  animation: spin 9s linear infinite;
+  pointer-events: none;
+}
+
+.celebration-trophy {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 16px;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--plat-gradient);
+  background-size: 200% 200%;
+  color: #26344d;
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(220, 232, 250, 0.45);
+  animation:
+    trophy-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both,
+    foil-shift 4s ease-in-out 0.8s infinite alternate;
+}
+
+.celebration-trophy svg {
+  width: 52px;
+  height: 52px;
+}
+
+@keyframes trophy-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5) rotate(-12deg);
+  }
+}
+
+.celebration-eyebrow {
+  position: relative;
+  margin: 0;
+  color: var(--plat-2);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.celebration-title {
+  position: relative;
+  margin: 6px 0 20px;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 6vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: var(--plat-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.celebration-plats {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.celebration-plat {
+  width: 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: celebration-in 0.5s var(--ease-out) both;
+}
+
+.celebration-plat:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.celebration-plat:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.celebration-plat:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+.celebration-plat .art {
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1.5px rgba(220, 232, 250, 0.8),
+    0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.celebration-plat-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.celebration-more {
+  color: var(--text-2);
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.celebration-rank {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--tone);
+  color: #1c2436;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.celebration-rank svg {
+  width: 16px;
+  height: 16px;
+}
+
+.celebration-badges {
+  position: relative;
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.celebration-badges li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.celebration-badges strong {
+  display: block;
+  font-size: 14px;
+}
+
+.celebration-badges small {
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.celebration-badge-medal {
+  font-size: 26px;
+}
+
+.celebration-close {
+  position: relative;
+  margin-top: 24px;
+}
+
+/* ---------------------------------------------------------------- badges */
+
+.badges {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.badge-medal {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  background: var(--surface-2);
+  border: 2px dashed var(--surface-3);
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+
+.badge.is-done {
+  border-color: rgba(185, 203, 228, 0.35);
+  background:
+    linear-gradient(135deg, rgba(244, 248, 255, 0.07), transparent 60%),
+    var(--surface);
+}
+
+.badge.is-done .badge-medal {
+  filter: none;
+  opacity: 1;
+  border: 0;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.9), transparent 45%),
+    var(--plat-gradient);
+  box-shadow:
+    0 0 0 3px rgba(185, 203, 228, 0.18),
+    0 6px 18px rgba(185, 203, 228, 0.2);
+}
+
+.badge-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.badge-text strong {
+  font-size: 14px;
+}
+
+.badge-text small {
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.badge:not(.is-done) .badge-text strong {
+  color: var(--text-2);
+}
+
+.badge-done {
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--plat-2);
+}
+
+.badge-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.badge-progress .bar {
+  flex: 1;
+  min-width: 50px;
+  height: 4px;
+}
+
+/* ---------------------------------------------------------------- prochain platine */
+
+.next-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  gap: 14px;
+}
+
+.next-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.2s var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .next-card:hover {
+    border-color: var(--surface-3);
+    transform: translateY(-2px);
+  }
+}
+
+.next-card.is-top {
+  border-color: rgba(90, 184, 255, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(90, 184, 255, 0.15),
+    0 10px 40px rgba(90, 184, 255, 0.1);
+}
+
+.next-card .art {
+  aspect-ratio: 460 / 160;
+}
+
+.next-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+
+.next-pick {
+  align-self: flex-start;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.next-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.next-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.next-meta strong {
+  color: var(--text);
+}
+
+.difficulty {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--surface-3);
+}
+
+.diff-easy {
+  color: #7ee08f;
+  background: rgba(126, 224, 143, 0.12);
+}
+.diff-doable {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+.diff-tough {
+  color: #ffb36b;
+  background: rgba(255, 179, 107, 0.12);
+}
+.diff-legendary {
+  color: #d9b8ff;
+  background: rgba(197, 139, 255, 0.14);
+}
+
+.next-ach {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.next-ach-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.next-ach-row img,
+.next-ach-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.next-ach-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.next-ach-pct {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.next-ach-more {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- vitrine : nouveau */
+
+.new-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #1d1630;
+  background: linear-gradient(110deg, #ffd6f0, #ffe9a8, #b8ffe1, #b5ddff, #e2c8ff, #ffd6f0);
+  background-size: 300% 100%;
+  animation: holo-slide 4s linear infinite;
+  box-shadow: 0 0 18px rgba(255, 233, 168, 0.5);
+}
+
+/* ---------------------------------------------------------------- carte de chasseur */
+
+.share-modal {
+  width: min(880px, calc(100vw - 24px));
+}
+
+.share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 12px;
+}
+
+.share-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+
+.share-head .modal-close {
+  position: static;
+}
+
+.share-preview {
+  padding: 0 20px;
+}
+
+.share-preview img {
+  display: block;
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 20px;
+}
+
+.share-status {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celebration-glow,
+  .new-tag {
+    animation: none;
+  }
+}

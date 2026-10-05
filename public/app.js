@@ -1,0 +1,1384 @@
+// ---------------------------------------------------------------- utilitaires
+
+import {
+  $,
+  nf,
+  dateFmt,
+  monthFmt,
+  monthShort,
+  ART_HOSTS,
+  esc,
+  icon,
+  fmtHours,
+  fmtDate,
+  fmtPct,
+  getJSON,
+  artImg,
+  gameIconUrl,
+  rarityTier,
+  fmtRarity,
+} from './utils.js';
+import { celebrate } from './celebrate.js';
+import { computeBadges, renderBadges } from './badges.js';
+import { findNextPlatinums, renderNextPlatinums } from './nextplat.js';
+import { openShareCard } from './sharecard.js';
+
+const app = $('#app');
+const SCAN_BATCH = 25;
+const LIB_PAGE = 60;
+
+const playLabel = (g) => (g.playtime ? fmtHours(g.playtime) : state.profile?.playtimeHidden ? 'Temps masqué' : 'Jamais lancé');
+
+document.addEventListener(
+  'error',
+  (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || img.dataset.fallback === undefined) return;
+    const rest = img.dataset.fallback.split('|').filter(Boolean);
+    if (rest.length) {
+      img.dataset.fallback = rest.slice(1).join('|');
+      img.src = rest[0];
+    } else {
+      img.classList.add('broken');
+    }
+  },
+  true,
+);
+
+// ---------------------------------------------------------------- état
+
+const state = {
+  me: null,
+  steamid: null,
+  profile: null,
+  ach: new Map(), // appid -> { total, unlocked, percent, times }
+  rarity: new Map(), // appid -> % max de joueurs ayant platiné
+  friends: [],
+  next: null, // recommandations « prochain platine » (null = pas encore calculées)
+  newPlats: new Set(), // platines obtenus depuis la dernière visite
+  scan: { done: 0, total: 0, running: false, error: null },
+  lib: { filter: 'all', sort: 'playtime', search: '', limit: LIB_PAGE },
+  token: 0,
+};
+
+function statusOf(g) {
+  if (!g.hasStats) return { kind: 'none' };
+  const a = state.ach.get(g.appid);
+  if (!a) return { kind: state.scan.running ? 'pending' : 'none' };
+  if (!a.total) return { kind: 'none' };
+  if (a.unlocked === a.total) return { kind: 'platinum', a };
+  if (a.unlocked === 0) return { kind: 'notstarted', a };
+  return { kind: 'progress', a };
+}
+
+function compute() {
+  const { games } = state.profile;
+  const s = {
+    totalMin: 0,
+    min2w: 0,
+    deckMin: 0,
+    played: 0,
+    never: 0,
+    withAch: 0,
+    unlocked: 0,
+    available: 0,
+    notStarted: 0,
+    platinum: [],
+    progress: [],
+    times: [], // [timestamp, game]
+    maxPlaytime: 0,
+  };
+
+  for (const g of games) {
+    s.totalMin += g.playtime;
+    s.min2w += g.playtime2w;
+    s.deckMin += g.playtimeDeck;
+    s.maxPlaytime = Math.max(s.maxPlaytime, g.playtime);
+    if (g.playtime > 0) s.played++;
+    else s.never++;
+
+    const st = statusOf(g);
+    g.status = st;
+    if (!st.a?.total) continue;
+
+    s.withAch++;
+    s.unlocked += st.a.unlocked;
+    s.available += st.a.total;
+    for (const t of st.a.times) s.times.push([t, g]);
+
+    if (st.kind === 'platinum') s.platinum.push({ g, a: st.a, date: st.a.times.at(-1) ?? 0 });
+    else if (st.kind === 'progress') s.progress.push({ g, a: st.a });
+    else s.notStarted++;
+  }
+
+  s.platinum.sort((x, y) => y.date - x.date);
+  s.progress.sort((x, y) => y.a.percent - x.a.percent || x.a.total - x.a.unlocked - (y.a.total - y.a.unlocked));
+  s.times.sort((x, y) => x[0] - y[0]);
+
+  const started = [...s.platinum, ...s.progress];
+  s.avgCompletion = started.length ? started.reduce((t, x) => t + x.a.percent, 0) / started.length : null;
+  return s;
+}
+
+// ---------------------------------------------------------------- navigation
+
+async function boot() {
+  const params = new URLSearchParams(location.search);
+  const auth = params.get('auth');
+  if (auth) {
+    const msg = {
+      cancel: 'Connexion Steam annulée.',
+      invalid: 'La réponse de Steam n’a pas pu être vérifiée. Réessaie.',
+      error: 'Steam est injoignable pour le moment. Réessaie plus tard.',
+    }[auth];
+    if (msg) showBanner(msg);
+    history.replaceState(null, '', `/${location.hash}`);
+  }
+
+  try {
+    state.me = (await getJSON('/api/me')).steamid;
+  } catch {
+    state.me = null;
+  }
+
+  window.addEventListener('hashchange', route);
+  route();
+}
+
+function route() {
+  const m = /^#\/u\/(\d{17})/.exec(location.hash);
+  const id = m?.[1] ?? state.me;
+  renderTopbar(id);
+  if (!id) {
+    state.token++;
+    state.steamid = null;
+    renderLanding();
+    return;
+  }
+  if (id !== state.steamid || !state.profile) loadProfile(id);
+}
+
+function showBanner(msg) {
+  const b = $('#banner');
+  b.textContent = msg;
+  b.hidden = false;
+  clearTimeout(showBanner.t);
+  showBanner.t = setTimeout(() => (b.hidden = true), 8000);
+}
+
+async function goToProfile(q, onError) {
+  const { steamid } = await getJSON(`/api/resolve?q=${encodeURIComponent(q)}`).catch((ex) => {
+    onError(ex.message);
+    return {};
+  });
+  if (steamid) location.hash = `#/u/${steamid}`;
+  return Boolean(steamid);
+}
+
+$('#topSearch').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = e.target.q;
+  const q = input.value.trim();
+  if (!q) return;
+  input.disabled = true;
+  const ok = await goToProfile(q, showBanner);
+  input.disabled = false;
+  if (ok) {
+    input.value = '';
+    input.blur();
+  } else {
+    input.focus();
+  }
+});
+
+function renderTopbar(viewing) {
+  // Sur l'accueil, le champ de recherche est déjà au centre de la page.
+  $('#topSearch').hidden = !viewing;
+  const nav = $('#topActions');
+  if (state.me) {
+    nav.innerHTML = `
+      ${viewing && viewing !== state.me ? `<a class="btn" href="#/" aria-label="Mon profil">${icon("user")}<span class="btn-label">Mon profil</span></a>` : ''}
+      <button class="btn" id="logoutBtn" type="button" aria-label="Déconnexion">${icon("logout")}<span class="btn-label">Déconnexion</span></button>`;
+    $('#logoutBtn').onclick = async () => {
+      await fetch('/auth/logout', { method: 'POST' });
+      state.me = null;
+      state.profile = null;
+      location.hash = '';
+      route();
+    };
+  } else {
+    nav.innerHTML = `<a class="btn btn-primary" href="/auth/steam">${icon('steam')}<span class="btn-label">Se connecter</span></a>`;
+  }
+}
+
+// ---------------------------------------------------------------- accueil
+
+function renderLanding() {
+  app.innerHTML = `
+    <section class="landing">
+      <div class="landing-inner">
+        <div class="landing-trophy">${icon('trophy')}</div>
+        <h1>Ta bibliothèque Steam,<br><span class="plat-text">en vitrine.</span></h1>
+        <p class="lead">Jeux platinés mis à l’honneur, progression des succès, temps de jeu cumulé et quelques stats dont tu ne soupçonnais pas l’existence.</p>
+        <a class="btn btn-primary btn-lg" href="/auth/steam">${icon('steam')} Se connecter avec Steam</a>
+        <div class="divider">ou consulter un profil public</div>
+        <form class="lookup" id="lookup">
+          <input class="input" name="q" autocomplete="off" spellcheck="false"
+            placeholder="URL de profil, SteamID64 ou pseudo personnalisé" aria-label="Profil Steam">
+          <button class="btn" type="submit">Voir</button>
+        </form>
+        <div class="form-error" id="lookupError" role="alert"></div>
+        <p class="note">Le profil et les « détails des jeux » doivent être publics dans les paramètres de confidentialité Steam.</p>
+      </div>
+    </section>`;
+
+  $('#lookup').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = e.target.q.value.trim();
+    const err = $('#lookupError');
+    const btn = e.target.querySelector('button');
+    if (!q) return;
+    btn.disabled = true;
+    err.textContent = '';
+    await goToProfile(q, (msg) => (err.textContent = msg));
+    btn.disabled = false;
+  });
+}
+
+// ---------------------------------------------------------------- chargement
+
+async function loadProfile(steamid, { refresh = false } = {}) {
+  const token = ++state.token;
+  state.steamid = steamid;
+  state.profile = null;
+  state.ach = new Map();
+  state.rarity = new Map();
+  state.friends = [];
+  state.next = null;
+  state.newPlats = new Set();
+  state.lib.limit = LIB_PAGE;
+  counted.clear();
+  seenPlat.clear();
+  lastRankKey = '';
+  lastPlatKey = '';
+  lastBadgeKey = '';
+  lastNext = undefined;
+  window.scrollTo({ top: 0 });
+  app.innerHTML = `<div class="loading"><div class="spinner"></div>Chargement de la bibliothèque…</div>`;
+
+  let profile;
+  try {
+    profile = await getJSON(`/api/profile/${steamid}${refresh ? '?refresh=1' : ''}`);
+  } catch (err) {
+    if (token !== state.token) return;
+    renderNotice('Impossible de charger ce profil', err.message);
+    return;
+  }
+  if (token !== state.token) return;
+
+  state.profile = profile;
+  // Steam renvoie 0 partout quand le joueur a choisi de garder son temps de jeu privé.
+  profile.playtimeHidden = profile.games.length > 0 && profile.games.every((g) => !g.playtime);
+  if (!profile.games.length) {
+    renderNotice(
+      profile.gamesHidden ? 'Bibliothèque privée' : 'Aucun jeu',
+      profile.gamesHidden
+        ? `Les « détails des jeux » de ${esc(profile.player.name)} ne sont pas publics. Dans Steam : Profil → Modifier le profil → Paramètres de confidentialité → Détails des jeux : Public.`
+        : `${esc(profile.player.name)} ne possède aucun jeu pour le moment.`,
+      profile.gamesHidden && steamid === state.me
+        ? `<a class="btn btn-primary" href="https://steamcommunity.com/my/edit/settings" target="_blank" rel="noopener">Ouvrir mes paramètres de confidentialité</a>`
+        : '',
+    );
+    return;
+  }
+
+  renderDashboard();
+  loadFriends(token);
+  scanAchievements(token, refresh);
+}
+
+async function scanAchievements(token, refresh) {
+  const queue = state.profile.games.filter((g) => g.hasStats).sort((a, b) => b.playtime - a.playtime);
+  state.scan = { done: 0, total: queue.length, running: queue.length > 0, error: null };
+  update();
+
+  for (let i = 0; i < queue.length; i += SCAN_BATCH) {
+    const ids = queue.slice(i, i + SCAN_BATCH).map((g) => g.appid);
+    try {
+      const results = await getJSON(`/api/achievements/${state.steamid}?appids=${ids.join(',')}${refresh ? '&refresh=1' : ''}`);
+      if (token !== state.token) return;
+      for (const r of results) if (!r.error) state.ach.set(r.appid, r);
+    } catch (err) {
+      if (token !== state.token) return;
+      if (err.status === 403) {
+        state.scan.error = 'Les succès de ce profil sont privés : seuls les temps de jeu sont disponibles.';
+        break;
+      }
+      state.scan.error = `Certains jeux n’ont pas pu être analysés (${err.message}).`;
+    }
+    state.scan.done = Math.min(i + SCAN_BATCH, queue.length);
+    scheduleUpdate();
+  }
+
+  if (token !== state.token) return;
+  state.scan.running = false;
+  update();
+  await Promise.all([loadRarity(token), loadNext(token)]);
+  if (token !== state.token) return;
+  $('#shareBtn').disabled = false;
+  checkProgress();
+}
+
+let updateTimer = null;
+let lastUpdate = 0;
+function scheduleUpdate() {
+  if (updateTimer) return;
+  const wait = Math.max(0, 700 - (performance.now() - lastUpdate));
+  updateTimer = setTimeout(() => {
+    updateTimer = null;
+    update();
+  }, wait);
+}
+
+function renderNotice(title, text, action = '') {
+  app.innerHTML = `
+    <div class="notice">
+      <h2>${esc(title)}</h2>
+      <p>${text}</p>
+      ${action}
+      <div><a class="btn" href="#/" style="margin-top:12px">Retour</a></div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------- tableau de bord
+
+function renderDashboard() {
+  const { player } = state.profile;
+
+  app.innerHTML = `
+    <section class="profile">
+      <div class="avatar-wrap" id="avatarWrap"><img class="avatar" src="${esc(player.avatar)}" alt=""></div>
+      <div class="profile-main">
+        <h1 class="profile-name">${esc(player.name)}</h1>
+        <div class="rank" id="rank"></div>
+        <div class="profile-sub">
+          <a href="${esc(player.url)}" target="_blank" rel="noopener">Profil Steam ↗</a>
+        </div>
+      </div>
+      <div class="profile-actions">
+        <button class="btn btn-primary" id="shareBtn" type="button" disabled>${icon('share')} Carte de chasseur</button>
+        <button class="btn" id="refreshBtn" type="button">${icon('refresh')} Rafraîchir</button>
+      </div>
+    </section>
+
+    <section class="friends" id="friends" hidden></section>
+
+    <div class="scan" id="scan"></div>
+    <section class="tiles" id="tiles"></section>
+
+    <section class="section trophy-case">
+      <div class="section-head"><h2>Vitrine des platines<span class="count" id="platCount"></span></h2><p>100 % des succès débloqués · du plus récent au plus ancien</p></div>
+      <div class="plat-features" id="platFeature"></div>
+      <div id="plat"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Badges<span class="count" id="badgeCount"></span></h2><p>Débloqués d’après ton historique de succès</p></div>
+      <div id="badges"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Ton prochain platine</h2><p>Les jeux dont les succès restants sont les plus accessibles</p></div>
+      <div id="nextPlat"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Presque platinés</h2><p>75 % de complétion ou plus — le sprint final</p></div>
+      <div id="nearly"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Statistiques</h2></div>
+      <div class="charts" id="charts"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Le saviez-vous ?</h2></div>
+      <div class="facts" id="facts"></div>
+    </section>
+
+    <section class="section" id="library">
+      <div class="section-head"><h2>Bibliothèque<span class="count" id="libCount"></span></h2></div>
+      <div class="toolbar">
+        <input class="input" id="libSearch" type="search" placeholder="Rechercher un jeu…" aria-label="Rechercher un jeu" value="${esc(state.lib.search)}">
+        <div class="chips" id="libChips" role="group" aria-label="Filtrer"></div>
+        <select class="select" id="libSort" aria-label="Trier">
+          <option value="playtime">Temps de jeu</option>
+          <option value="completion">Complétion</option>
+          <option value="recent">Joué récemment</option>
+          <option value="name">Nom</option>
+        </select>
+      </div>
+      <div class="lib-grid" id="libGrid"></div>
+      <div class="lib-more" id="libMore"></div>
+    </section>`;
+
+  $('#refreshBtn').onclick = () => loadProfile(state.steamid, { refresh: true });
+  $('#shareBtn').onclick = shareCard;
+  $('#libSort').value = state.lib.sort;
+  $('#libSort').onchange = (e) => {
+    state.lib.sort = e.target.value;
+    state.lib.limit = LIB_PAGE;
+    renderLibrary(compute());
+  };
+  $('#libSearch').oninput = (e) => {
+    state.lib.search = e.target.value;
+    state.lib.limit = LIB_PAGE;
+    renderLibrary(compute());
+  };
+
+  app.onclick = (e) => {
+    const el = e.target.closest('[data-appid]');
+    if (el) openGame(Number(el.dataset.appid));
+  };
+  bindHolo($('#plat'));
+
+  update();
+}
+
+function update() {
+  if (!state.profile || !$('#tiles')) return;
+  lastUpdate = performance.now();
+  const s = compute();
+  renderScan();
+  renderRank(s);
+  renderTiles(s);
+  renderPlatinum(s);
+  renderBadgeSection(s);
+  renderNext();
+  renderNearly(s);
+  renderCharts(s);
+  renderFacts(s);
+  renderLibrary(s);
+}
+
+function renderScan() {
+  const el = $('#scan');
+  const { done, total, running, error } = state.scan;
+  if (!running && !error) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = running
+    ? `<div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+       <span>Analyse des succès… ${done} / ${total} jeux</span>
+       <div class="bar"><i style="width:${total ? (done / total) * 100 : 0}%"></i></div>
+       ${error ? `<span class="scan-error">${esc(error)}</span>` : ''}`
+    : `<span class="scan-error">${esc(error)}</span>`;
+}
+
+function tile({ label, value, unit = '', hint = '', cls = '' }) {
+  return `
+    <div class="tile ${cls}">
+      <div class="tile-label">${label}</div>
+      <div class="tile-value">${value}${unit ? `<small>${unit}</small>` : ''}</div>
+      ${hint ? `<div class="tile-hint">${hint}</div>` : ''}
+    </div>`;
+}
+
+function renderTiles(s) {
+  const games = state.profile.games.length;
+  const hours = Math.round(s.totalMin / 60);
+  const days = s.totalMin / 60 / 24;
+  const pending = state.scan.running ? '…' : '—';
+  const achReady = s.withAch > 0;
+
+  const hidden = state.profile.playtimeHidden;
+  $('#tiles').innerHTML = [
+    hidden
+      ? tile({ cls: 'hero', label: 'Temps de jeu total', value: 'Masqué', hint: 'Ce joueur garde son temps de jeu privé sur Steam' })
+      : tile({
+      cls: 'hero',
+      label: 'Temps de jeu total',
+      value: countSpan('hours', hours),
+      unit: 'h',
+      hint: `soit ${days.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} jours non-stop · ${(days / 365.25).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} an`,
+    }),
+    tile({
+      cls: 'plat',
+      label: `${icon('trophy')} Jeux platinés`,
+      value: state.scan.running ? '…' : achReady ? countSpan('plat', s.platinum.length) : '—',
+      hint: state.scan.running
+        ? 'Analyse en cours…'
+        : achReady
+          ? [`sur ${nf.format(s.withAch)} jeux avec succès`, ultraCount(s) ? `dont ${ultraCount(s)} ultra-rare${ultraCount(s) > 1 ? 's' : ''}` : '']
+              .filter(Boolean)
+              .join(' · ')
+          : '',
+    }),
+    tile({
+      label: 'Complétion moyenne',
+      value: s.avgCompletion != null ? Math.round(s.avgCompletion) : pending,
+      unit: s.avgCompletion != null ? '%' : '',
+      hint: s.avgCompletion != null ? `sur ${nf.format(s.platinum.length + s.progress.length)} jeux commencés` : '',
+    }),
+    tile({
+      label: 'Succès débloqués',
+      value: achReady ? nf.format(s.unlocked) : pending,
+      hint: achReady ? `sur ${nf.format(s.available)} · ${Math.round((s.unlocked / s.available) * 100)} %` : '',
+    }),
+    tile({ label: 'Jeux possédés', value: nf.format(games), hint: hidden ? '' : `${nf.format(s.played)} lancés au moins une fois` }),
+    hidden ? '' : tile({
+      label: 'Jamais lancés',
+      value: nf.format(s.never),
+      hint: `${Math.round((s.never / games) * 100)} % de la bibliothèque`,
+    }),
+    hidden ? '' : tile({
+      label: '2 dernières semaines',
+      value: fmtHours(s.min2w).replace(/ (h|min)$/, ''),
+      unit: / min$/.test(fmtHours(s.min2w)) ? 'min' : 'h',
+      hint: `${state.profile.recent.length} jeu${state.profile.recent.length > 1 ? 'x' : ''} lancé${state.profile.recent.length > 1 ? 's' : ''}`,
+    }),
+    s.deckMin > 0
+      ? tile({
+          label: 'Sur Steam Deck',
+          value: nf.format(Math.round(s.deckMin / 60)),
+          unit: 'h',
+          hint: `${Math.round((s.deckMin / s.totalMin) * 100)} % du temps de jeu`,
+        })
+      : '',
+  ].join('');
+  runCountUps();
+}
+
+// ---------------------------------------------------------------- compteurs animés
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
+const counted = new Set(); // clés déjà animées pour le profil courant
+
+const countSpan = (key, n) => `<span data-count="${n}" data-key="${key}">${nf.format(n)}</span>`;
+
+/** Fait défiler les chiffres une seule fois par profil, quand la valeur finale est connue. */
+function runCountUps() {
+  for (const el of document.querySelectorAll('[data-count]')) {
+    const key = el.dataset.key;
+    if (counted.has(key)) continue;
+    counted.add(key);
+    const to = Number(el.dataset.count);
+    if (reduceMotion.matches || to < 2) continue;
+
+    const duration = Math.min(1400, 600 + to * 8);
+    const start = performance.now();
+    const token = state.token;
+    const tick = (now) => {
+      // Les rendus successifs remplacent l'élément : on le retrouve à chaque image.
+      const node = document.querySelector(`[data-key="${key}"]`);
+      if (!node || token !== state.token) return;
+      const t = Math.min(1, (now - start) / duration);
+      const eased = 1 - (1 - t) ** 4; // ease-out : rapide au début, se pose en douceur
+      node.textContent = nf.format(Math.round(to * eased));
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+}
+
+// ---------------------------------------------------------------- rang & rareté
+
+const RANKS = [
+  { min: 0, name: 'Recrue', tone: 'rookie' },
+  { min: 1, name: 'Bronze', tone: 'bronze' },
+  { min: 5, name: 'Argent', tone: 'silver' },
+  { min: 15, name: 'Or', tone: 'gold' },
+  { min: 30, name: 'Platine', tone: 'plat' },
+  { min: 60, name: 'Diamant', tone: 'diamond' },
+  { min: 100, name: 'Légende', tone: 'legend' },
+];
+
+function rankOf(count) {
+  let i = 0;
+  while (i + 1 < RANKS.length && count >= RANKS[i + 1].min) i++;
+  return { ...RANKS[i], next: RANKS[i + 1] ?? null };
+}
+
+const ultraCount = (s) => s.platinum.filter((x) => state.rarity.get(x.g.appid) <= 5).length;
+
+let lastRankKey = '';
+function renderRank(s) {
+  const el = $('#rank');
+  if (state.scan.running) {
+    if (lastRankKey !== 'pending') el.innerHTML = `<span class="rank-chip rank-pending">Calcul du rang…</span>`;
+    lastRankKey = 'pending';
+    return;
+  }
+  const n = s.platinum.length;
+  const r = rankOf(n);
+  const key = `${r.tone}:${n}`;
+  if (key === lastRankKey) return;
+  lastRankKey = key;
+
+  $('#avatarWrap').className = `avatar-wrap tone-${r.tone}`;
+  const progress = r.next ? ((n - r.min) / (r.next.min - r.min)) * 100 : 100;
+  const left = r.next ? r.next.min - n : 0;
+  el.innerHTML = `
+    <span class="rank-chip tone-${r.tone}" title="Rang calculé sur le nombre de jeux platinés">${icon('trophy')} Rang ${r.name}</span>
+    <span class="rank-progress">
+      <span class="bar"><i style="width:${progress}%"></i></span>
+      <span class="rank-next">${r.next ? `${left} platine${left > 1 ? 's' : ''} avant le rang ${r.next.name}` : 'Rang maximum atteint'}</span>
+    </span>`;
+}
+
+async function loadRarity(token) {
+  const ids = compute().platinum.map((x) => x.g.appid).filter((id) => !state.rarity.has(id));
+  for (let i = 0; i < ids.length; i += SCAN_BATCH) {
+    try {
+      const res = await getJSON(`/api/rarity?appids=${ids.slice(i, i + SCAN_BATCH).join(',')}`);
+      if (token !== state.token) return;
+      for (const r of res) if (r.platinumMax != null) state.rarity.set(r.appid, r.platinumMax);
+    } catch {
+      return; // la rareté est un bonus : on n'affiche simplement pas les pastilles
+    }
+    update();
+  }
+}
+
+// ---------------------------------------------------------------- badges & prochain platine
+
+let lastBadgeKey = '';
+function renderBadgeSection(s) {
+  const el = $('#badges');
+  if (state.scan.running) {
+    if (lastBadgeKey !== 'pending') el.innerHTML = `<div class="empty">Les badges seront calculés à la fin de l’analyse…</div>`;
+    lastBadgeKey = 'pending';
+    return;
+  }
+  const list = computeBadges({ s, rarity: state.rarity, playtimeHidden: state.profile.playtimeHidden });
+  const key = list.map((b) => `${b.id}:${b.progress.toFixed(2)}`).join('|');
+  if (key === lastBadgeKey) return;
+  lastBadgeKey = key;
+  $('#badgeCount').textContent = ` ${list.filter((b) => b.done).length} / ${list.length}`;
+  el.innerHTML = renderBadges(list);
+}
+
+let lastNext;
+function renderNext() {
+  if (state.next === lastNext && $('#nextPlat').childElementCount) return;
+  lastNext = state.next;
+  const el = $('#nextPlat');
+  if (state.next === null) {
+    el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Recherche des succès les plus accessibles…'}</div>`;
+  } else if (!state.next.length) {
+    el.innerHTML = `<div class="empty">Aucun jeu assez avancé pour l’instant : lance-toi dans un jeu et reviens voir !</div>`;
+  } else {
+    el.innerHTML = renderNextPlatinums(state.next);
+  }
+}
+
+async function loadNext(token) {
+  const next = await findNextPlatinums(state.steamid, compute().progress);
+  if (token !== state.token) return;
+  state.next = next;
+  update();
+}
+
+// ---------------------------------------------------------------- nouveautés depuis la dernière visite
+
+const storeKey = (id) => `steam-stats:v1:${id}`;
+
+/** Compare avec la visite précédente (sur ce navigateur) et fête les nouveaux platines, badges et rangs. */
+function checkProgress() {
+  if (!state.me || state.steamid !== state.me) return;
+  const s = compute();
+  const badges = computeBadges({ s, rarity: state.rarity, playtimeHidden: state.profile.playtimeHidden });
+  const rank = rankOf(s.platinum.length);
+  const snapshot = {
+    plats: s.platinum.map((x) => x.g.appid),
+    badges: badges.filter((b) => b.done).map((b) => b.id),
+    rank: rank.tone,
+  };
+
+  let prev = null;
+  try {
+    prev = JSON.parse(localStorage.getItem(storeKey(state.steamid)));
+    localStorage.setItem(storeKey(state.steamid), JSON.stringify(snapshot));
+  } catch {
+    return; // stockage indisponible (navigation privée…) : pas de comparaison possible
+  }
+  if (!prev) return; // première visite : on mémorise sans célébrer
+
+  const before = new Set(prev.plats);
+  const newPlats = s.platinum.filter((x) => !before.has(x.g.appid));
+  const newBadges = badges.filter((b) => b.done && !prev.badges?.includes(b.id));
+  const tier = (tone) => RANKS.findIndex((r) => r.tone === tone);
+  const rankUp = tier(rank.tone) > tier(prev.rank) ? rank : null;
+
+  if (newPlats.length) {
+    state.newPlats = new Set(newPlats.map((x) => x.g.appid));
+    update();
+  }
+  celebrate({
+    plats: newPlats.map((x) => ({ appid: x.g.appid, name: x.g.name })),
+    badges: newBadges,
+    rank: rankUp,
+  });
+}
+
+// ---------------------------------------------------------------- carte de chasseur
+
+function shareCard() {
+  const s = compute();
+  const byRarity = s.platinum
+    .filter((p) => state.rarity.has(p.g.appid))
+    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid));
+  const featured = (byRarity.length ? byRarity : s.platinum).slice(0, 3).map((p) => ({
+    appid: p.g.appid,
+    name: p.g.name,
+    rarity: state.rarity.get(p.g.appid) ?? null,
+  }));
+  openShareCard({
+    player: state.profile.player,
+    rank: rankOf(s.platinum.length),
+    plats: s.platinum.length,
+    featured,
+    stats: [
+      [nf.format(s.unlocked), 'succès débloqués'],
+      s.avgCompletion != null ? [`${Math.round(s.avgCompletion)} %`, 'complétion moyenne'] : null,
+      state.profile.playtimeHidden ? null : [`${nf.format(Math.round(s.totalMin / 60))} h`, 'de jeu'],
+    ].filter(Boolean),
+  });
+}
+
+// ---------------------------------------------------------------- amis
+
+async function loadFriends(token) {
+  const el = $('#friends');
+  let data;
+  try {
+    data = await getJSON(`/api/friends/${state.steamid}`);
+  } catch {
+    return;
+  }
+  if (token !== state.token || !el) return;
+
+  if (data.private) {
+    if (state.steamid !== state.me) return;
+    el.hidden = false;
+    el.innerHTML = `<p class="friends-private">${icon('lock')} Ta liste d’amis est privée : rends-la publique dans tes <a href="https://steamcommunity.com/my/edit/settings" target="_blank" rel="noopener">paramètres de confidentialité Steam</a> pour accéder aux profils de tes amis d’ici.</p>`;
+    return;
+  }
+  if (!data.friends.length) return;
+
+  state.friends = data.friends;
+  const online = data.friends.filter((f) => f.online).length;
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="friends-head">
+      <h2>${icon('users')} Amis <span class="count">${data.friends.length}</span>${online ? `<span class="online-count">${online} en ligne</span>` : ''}</h2>
+      ${data.friends.length > 12 ? `<input class="input friends-filter" id="friendsFilter" type="search" placeholder="Filtrer…" aria-label="Filtrer les amis">` : ''}
+    </div>
+    <div class="friends-row" id="friendsRow"></div>`;
+  renderFriendList('');
+  $('#friendsFilter')?.addEventListener('input', (e) => renderFriendList(e.target.value));
+}
+
+function renderFriendList(q) {
+  const needle = q.trim().toLocaleLowerCase('fr');
+  const list = state.friends.filter((f) => !needle || f.name.toLocaleLowerCase('fr').includes(needle));
+  $('#friendsRow').innerHTML = list.length
+    ? list
+        .map((f) => {
+          const status = f.game ? 'ingame' : f.online ? 'online' : 'offline';
+          const tip = [f.name, f.game ? `En jeu : ${f.game}` : f.online ? 'En ligne' : 'Hors ligne', f.isPublic ? '' : 'Profil privé'].filter(Boolean).join('\n');
+          return `
+          <a class="friend ${f.isPublic ? '' : 'is-private'}" href="#/u/${f.steamid}" data-tip="${esc(tip)}">
+            <span class="friend-avatar status-${status}"><img src="${esc(f.avatar)}" data-fallback="" alt="" loading="lazy"></span>
+            <span class="friend-name">${esc(f.name)}</span>
+            <span class="friend-game">${f.game ? esc(f.game) : f.isPublic ? '' : 'Privé'}</span>
+          </a>`;
+        })
+        .join('')
+    : `<p class="friends-empty">Aucun ami ne correspond.</p>`;
+}
+
+const SPARKS = [
+  [8, 22, 0], [18, 70, 1.1], [34, 14, 2.3], [62, 78, 0.6], [78, 20, 1.7], [90, 58, 2.9], [50, 40, 3.6],
+];
+
+function rarityPill(appid, { long = false } = {}) {
+  const p = state.rarity.get(appid);
+  const tier = rarityTier(p);
+  if (!tier) return '';
+  const text = long ? `${tier.label} · ≤ ${fmtRarity(p)} des joueurs` : `≤ ${fmtRarity(p)}`;
+  return `<span class="rarity-pill tier-${tier.id}" title="Au plus ${fmtRarity(p)} des joueurs ont platiné ce jeu (d’après son succès le plus rare)">${text}</span>`;
+}
+
+function featureCard(label, { g, a, date }) {
+  return `
+    <button class="plat-feature" data-appid="${g.appid}" type="button">
+      <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], g.name)}</div>
+      <span class="feature-sparks" aria-hidden="true">${SPARKS.map(([x, y, d]) => `<i style="left:${x}%;top:${y}%;animation-delay:${d}s">${icon('sparkle')}</i>`).join('')}</span>
+      <span class="feature-body">
+        <span class="eyebrow">${icon('sparkle')} ${label}</span>
+        <span class="feature-title">${esc(g.name)}</span>
+        <span class="feature-meta">
+          <span>Platiné le ${fmtDate(date)}</span>
+          <span>${a.total} succès</span>
+          ${g.playtime ? `<span>${fmtHours(g.playtime)}</span>` : ''}
+          ${rarityPill(g.appid, { long: true })}
+        </span>
+      </span>
+      <span class="feature-trophy" aria-hidden="true">${icon('trophy')}</span>
+    </button>`;
+}
+
+let lastPlatKey = '';
+const seenPlat = new Set();
+
+function renderPlatinum(s) {
+  $('#platCount').textContent = s.platinum.length ? ` ${s.platinum.length}` : '';
+  const el = $('#plat');
+  const feat = $('#platFeature');
+
+  // On ne reconstruit la vitrine que si son contenu change, pour ne pas casser les animations en cours.
+  const key = `${state.scan.running}|${s.platinum.map((x) => x.g.appid).join(',')}|${state.rarity.size}|${state.newPlats.size}`;
+  if (key === lastPlatKey) return;
+  lastPlatKey = key;
+
+  if (!s.platinum.length) {
+    feat.innerHTML = '';
+    el.innerHTML = `<div class="empty">${state.scan.running ? 'Recherche des jeux platinés…' : 'Aucun jeu platiné pour le moment. Les « presque platinés » ci-dessous sont un bon point de départ !'}</div>`;
+    return;
+  }
+
+  if (state.scan.running) {
+    feat.innerHTML = '';
+  } else {
+    const latest = s.platinum[0];
+    const rarest = s.platinum
+      .filter((x) => state.rarity.has(x.g.appid))
+      .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+    feat.innerHTML =
+      featureCard('Dernier platine', latest) + (rarest && rarest !== latest ? featureCard('Ton platine le plus rare', rarest) : '');
+  }
+
+  el.innerHTML = `<div class="plat-grid">${s.platinum
+    .map(({ g, date }) => {
+      const tier = rarityTier(state.rarity.get(g.appid));
+      return `
+      <button class="holo ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button">
+        <span class="holo-card">
+          <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_600x900.jpg', 'header.jpg'], g.name)}</span>
+          <span class="holo-foil" aria-hidden="true"></span>
+          <span class="holo-glare" aria-hidden="true"></span>
+          <span class="plat-badge" title="Platiné">${icon('trophy')}</span>
+          ${rarityPill(g.appid)}
+          ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
+        </span>
+        <span class="meta">${esc(g.name)}</span>
+        <span class="sub">Platiné le ${fmtDate(date)}</span>
+      </button>`;
+    })
+    .join('')}</div>`;
+
+  // Apparition en cascade, uniquement pour les cartes qui n'étaient pas encore affichées.
+  let i = 0;
+  for (const card of el.querySelectorAll('.holo')) {
+    const id = card.dataset.appid;
+    if (seenPlat.has(id)) continue;
+    seenPlat.add(id);
+    if (reduceMotion.matches) continue;
+    card.animate(
+      [
+        { opacity: 0, transform: 'translateY(10px) scale(0.96)' },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration: 420, delay: Math.min(i++, 12) * 45, easing: 'cubic-bezier(0.23, 1, 0.32, 1)', fill: 'backwards' },
+    );
+  }
+}
+
+// Inclinaison 3D + reflet holographique qui suit le pointeur (souris uniquement).
+function bindHolo(root) {
+  root.addEventListener('pointermove', (e) => {
+    if (!finePointer.matches || reduceMotion.matches) return;
+    const card = e.target.closest?.('.holo-card');
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width;
+    const py = (e.clientY - r.top) / r.height;
+    card.style.transform = `perspective(700px) rotateX(${(0.5 - py) * 16}deg) rotateY(${(px - 0.5) * 18}deg) scale(1.04)`;
+    card.style.setProperty('--mx', `${px * 100}%`);
+    card.style.setProperty('--my', `${py * 100}%`);
+    card.classList.add('is-active');
+  });
+  root.addEventListener(
+    'pointerout',
+    (e) => {
+      const card = e.target.closest?.('.holo-card');
+      if (!card || card.contains(e.relatedTarget)) return;
+      card.style.transform = '';
+      card.classList.remove('is-active');
+    },
+    true,
+  );
+}
+
+function renderNearly(s) {
+  const list = s.progress.filter((x) => x.a.percent >= 75).slice(0, 12);
+  const el = $('#nearly');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Aucun jeu à plus de 75 % pour l’instant.'}</div>`;
+    return;
+  }
+  el.innerHTML = `<div class="near-list">${list
+    .map(({ g, a }) => {
+      const left = a.total - a.unlocked;
+      return `
+      <button class="near" data-appid="${g.appid}" type="button">
+        <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</div>
+        <div style="min-width:0">
+          <div class="near-name">${esc(g.name)}</div>
+          <div class="near-meta"><span><strong>${a.unlocked}</strong> / ${a.total} · ${left} restant${left > 1 ? 's' : ''}</span><strong>${fmtPct(a.percent)}</strong></div>
+          <div class="bar"><i style="width:${a.percent}%"></i></div>
+        </div>
+      </button>`;
+    })
+    .join('')}</div>`;
+}
+
+// ---------------------------------------------------------------- graphiques
+
+/** Histogramme vertical en SVG, une seule série. data: [{ label, value, tip, cls }] */
+function barChart(container, data, { height = 200, showValues = false, labelEvery = 1 } = {}) {
+  const W = Math.max(280, container.clientWidth || 600);
+  const H = height;
+  const pad = { l: 34, r: 4, t: showValues ? 20 : 10, b: 26 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  const rawMax = Math.max(1, ...data.map((d) => d.value));
+  const max = niceMax(rawMax);
+  const step = iw / data.length;
+  const gap = 2;
+  const bw = Math.max(2, Math.min(step - gap, 56));
+  const y = (v) => pad.t + ih - (v / max) * ih;
+
+  const ticks = [0, max / 2, max];
+  const grid = ticks
+    .map(
+      (t) => `
+      <line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(t)}" y2="${y(t)}"/>
+      <text class="axis-label" x="${pad.l - 8}" y="${y(t) + 4}" text-anchor="end">${nf.format(t)}</text>`,
+    )
+    .join('');
+
+  const cols = data
+    .map((d, i) => {
+      const cx = pad.l + step * i + step / 2;
+      const x = cx - bw / 2;
+      const h = (d.value / max) * ih;
+      const top = pad.t + ih - h;
+      const r = Math.min(4, bw / 2, h);
+      const bar =
+        h > 0
+          ? `<path class="bar-mark ${d.cls ?? ''}" d="M${x},${pad.t + ih} V${top + r} Q${x},${top} ${x + r},${top} H${x + bw - r} Q${x + bw},${top} ${x + bw},${top + r} V${pad.t + ih} Z"/>`
+          : '';
+      const label =
+        i % labelEvery === 0 || i === data.length - 1
+          ? `<text class="axis-label" x="${cx}" y="${H - 6}" text-anchor="middle">${esc(d.label)}</text>`
+          : '';
+      const val = showValues && d.value > 0 ? `<text class="value-label" x="${cx}" y="${top - 6}" text-anchor="middle">${nf.format(d.value)}</text>` : '';
+      return `<g class="col" data-tip="${esc(d.tip)}"><rect class="hit" x="${pad.l + step * i}" y="${pad.t}" width="${step}" height="${ih}"/>${bar}${val}${label}</g>`;
+    })
+    .join('');
+
+  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img">${grid}${cols}</svg>`;
+}
+
+function niceMax(v) {
+  const exp = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * exp >= v) return Math.max(2, m * exp);
+  return v;
+}
+
+function renderCharts(s) {
+  const el = $('#charts');
+  if (!el.dataset.ready) {
+    el.innerHTML = `
+      <div class="card chart-card wide">
+        <h3>Succès débloqués par mois</h3>
+        <p class="chart-sub" id="monthsSub">24 derniers mois</p>
+        <div class="chart" id="chartMonths"></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Top 10 du temps de jeu</h3>
+        <p class="chart-sub">Heures cumulées par jeu</p>
+        <div class="top-list" id="topPlayed"></div>
+      </div>
+      <div class="card chart-card">
+        <h3>Répartition de la complétion</h3>
+        <p class="chart-sub">Nombre de jeux avec succès, par tranche de complétion</p>
+        <div class="chart" id="chartCompletion"></div>
+      </div>`;
+    el.dataset.ready = '1';
+  }
+
+  // Succès par mois, sur 24 mois glissants.
+  const now = new Date();
+  const months = [];
+  for (let i = 23; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${d.getMonth()}`, date: d, value: 0 });
+  }
+  const byKey = new Map(months.map((m) => [m.key, m]));
+  for (const [t] of s.times) {
+    const d = new Date(t * 1000);
+    const m = byKey.get(`${d.getFullYear()}-${d.getMonth()}`);
+    if (m) m.value++;
+  }
+  const total24 = months.reduce((t, m) => t + m.value, 0);
+  $('#monthsSub').textContent = `24 derniers mois · ${nf.format(total24)} succès`;
+  barChart(
+    $('#chartMonths'),
+    months.map((m) => ({
+      label: m.date.getMonth() === 0 ? String(m.date.getFullYear()) : monthShort.format(m.date).replace('.', ''),
+      value: m.value,
+      tip: `${monthFmt.format(m.date)}\n${nf.format(m.value)} succès`,
+    })),
+    { height: 210, labelEvery: window.innerWidth < 640 ? 4 : 2 },
+  );
+
+  // Top 10 temps de jeu.
+  const top = [...state.profile.games].sort((a, b) => b.playtime - a.playtime).slice(0, 10).filter((g) => g.playtime > 0);
+  const topMax = top[0]?.playtime || 1;
+  $('#topPlayed').innerHTML = top.length
+    ? top
+        .map(
+          (g, i) => `
+        <button class="top-row" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\n${fmtHours(g.playtime)} · ${Math.round((g.playtime / s.totalMin) * 100)} % du total`)}">
+          <span class="rank">${i + 1}</span>
+          ${g.icon ? `<img src="${gameIconUrl(g)}" alt="" loading="lazy">` : '<span></span>'}
+          <span class="name-bar"><span class="name">${esc(g.name)}</span><span class="bar"><i style="width:${(g.playtime / topMax) * 100}%"></i></span></span>
+          <span class="val">${fmtHours(g.playtime)}</span>
+        </button>`,
+        )
+        .join('')
+    : `<div class="empty">${state.profile.playtimeHidden ? 'Temps de jeu privé sur ce profil.' : 'Aucun temps de jeu enregistré.'}</div>`;
+
+  // Répartition de la complétion.
+  const buckets = [
+    { label: '0 %', test: (p) => p === 0 },
+    { label: '1–24 %', test: (p) => p > 0 && p < 25 },
+    { label: '25–49 %', test: (p) => p >= 25 && p < 50 },
+    { label: '50–74 %', test: (p) => p >= 50 && p < 75 },
+    { label: '75–99 %', test: (p) => p >= 75 && p < 100 },
+    { label: '100 %', test: (p) => p === 100, cls: 'plat' },
+  ].map((b) => ({ ...b, value: 0 }));
+  for (const g of state.profile.games) {
+    const a = g.status.a;
+    if (!a?.total) continue;
+    buckets.find((b) => b.test(a.percent)).value++;
+  }
+  barChart(
+    $('#chartCompletion'),
+    buckets.map((b) => ({ ...b, tip: `${b.label}\n${nf.format(b.value)} jeu${b.value > 1 ? 'x' : ''}` })),
+    { height: 230, showValues: true },
+  );
+}
+
+window.addEventListener('resize', () => {
+  clearTimeout(window.__rz);
+  window.__rz = setTimeout(() => state.profile && $('#charts') && renderCharts(compute()), 150);
+});
+
+// ---------------------------------------------------------------- faits
+
+function renderFacts(s) {
+  const facts = [];
+  const games = state.profile.games;
+  const most = games.reduce((m, g) => (g.playtime > (m?.playtime ?? 0) ? g : m), null);
+  if (most) {
+    facts.push({
+      label: 'Jeu le plus joué',
+      value: most.name,
+      hint: `${fmtHours(most.playtime)} · ${Math.round((most.playtime / s.totalMin) * 100)} % de ton temps de jeu`,
+      appid: most.appid,
+    });
+  }
+
+  if (s.times.length) {
+    const [t0, g0] = s.times[0];
+    facts.push({ label: 'Premier succès', value: g0.name, hint: `le ${fmtDate(t0)}`, appid: g0.appid });
+
+    const [tl, gl] = s.times.at(-1);
+    facts.push({ label: 'Dernier succès', value: gl.name, hint: `le ${fmtDate(tl)}`, appid: gl.appid });
+
+    const perDay = new Map();
+    for (const [t, g] of s.times) {
+      const d = new Date(t * 1000);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      const e = perDay.get(key) ?? { t, n: 0, games: new Map() };
+      e.n++;
+      e.games.set(g.name, (e.games.get(g.name) ?? 0) + 1);
+      perDay.set(key, e);
+    }
+    const best = [...perDay.values()].sort((a, b) => b.n - a.n)[0];
+    const bestGame = [...best.games].sort((a, b) => b[1] - a[1])[0][0];
+    facts.push({ label: 'Journée record', value: `${best.n} succès le ${fmtDate(best.t)}`, hint: `principalement sur ${bestGame}` });
+
+    const monthsSpan = Math.max(1, (Date.now() / 1000 - t0) / (30.44 * 24 * 3600));
+    facts.push({
+      label: 'Rythme moyen',
+      value: `${(s.times.length / monthsSpan).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} succès / mois`,
+      hint: `depuis ton premier succès`,
+    });
+  }
+
+  const rarest = s.platinum
+    .filter((p) => state.rarity.has(p.g.appid))
+    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+  if (rarest) {
+    facts.push({
+      label: 'Platine le plus rare',
+      value: rarest.g.name,
+      hint: `au plus ${fmtRarity(state.rarity.get(rarest.g.appid))} des joueurs l’ont platiné`,
+      appid: rarest.g.appid,
+    });
+  }
+
+  const plats = s.platinum.filter((p) => p.g.playtime > 0);
+  if (plats.length) {
+    const fastest = plats.reduce((m, p) => (p.g.playtime < m.g.playtime ? p : m));
+    const longest = plats.reduce((m, p) => (p.g.playtime > m.g.playtime ? p : m));
+    facts.push({ label: 'Platine le plus rapide', value: fastest.g.name, hint: `en ${fmtHours(fastest.g.playtime)}`, appid: fastest.g.appid });
+    if (longest !== fastest) {
+      facts.push({ label: 'Platine le plus long', value: longest.g.name, hint: `${fmtHours(longest.g.playtime)} de jeu`, appid: longest.g.appid });
+    }
+  }
+
+  const forgotten = games
+    .filter((g) => g.playtime >= 600 && g.lastPlayed && Date.now() / 1000 - g.lastPlayed > 365 * 24 * 3600)
+    .sort((a, b) => b.playtime - a.playtime)[0];
+  if (forgotten) {
+    facts.push({
+      label: 'Vieil amour délaissé',
+      value: forgotten.name,
+      hint: `${fmtHours(forgotten.playtime)}, mais pas lancé depuis le ${fmtDate(forgotten.lastPlayed)}`,
+      appid: forgotten.appid,
+    });
+  }
+
+  if (s.notStarted) {
+    facts.push({ label: 'Succès en attente', value: `${s.notStarted} jeux à 0 %`, hint: 'avec des succès, mais aucun débloqué' });
+  }
+
+  $('#facts').innerHTML = facts.length
+    ? facts
+        .map(
+          (f) => `
+        <div class="fact" ${f.appid ? `data-appid="${f.appid}" style="cursor:pointer"` : ''}>
+          <div class="fact-label">${f.label}</div>
+          <div class="fact-value">${esc(f.value)}</div>
+          <div class="fact-hint">${esc(f.hint)}</div>
+        </div>`,
+        )
+        .join('')
+    : `<div class="empty">Les anecdotes arrivent après l’analyse des succès…</div>`;
+}
+
+// ---------------------------------------------------------------- bibliothèque
+
+const FILTERS = [
+  { id: 'all', label: 'Tous', test: () => true },
+  { id: 'platinum', label: 'Platinés', test: (g) => g.status.kind === 'platinum' },
+  { id: 'progress', label: 'En cours', test: (g) => g.status.kind === 'progress' },
+  { id: 'notstarted', label: 'Succès à 0 %', test: (g) => g.status.kind === 'notstarted' },
+  { id: 'none', label: 'Sans succès', test: (g) => g.status.kind === 'none' },
+  { id: 'never', label: 'Jamais lancés', test: (g) => g.playtime === 0, hideWhen: () => state.profile.playtimeHidden },
+];
+
+const SORTS = {
+  playtime: (a, b) => b.playtime - a.playtime,
+  completion: (a, b) => (b.status.a?.percent ?? -1) - (a.status.a?.percent ?? -1) || b.playtime - a.playtime,
+  recent: (a, b) => b.lastPlayed - a.lastPlayed,
+  name: (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }),
+};
+
+function renderLibrary() {
+  const games = state.profile.games;
+  const { sort, search, limit } = state.lib;
+  const q = search.trim().toLocaleLowerCase('fr');
+
+  if (FILTERS.find((f) => f.id === state.lib.filter).hideWhen?.()) state.lib.filter = 'all';
+  $('#libChips').innerHTML = FILTERS.filter((f) => !f.hideWhen?.()).map((f) => {
+    const n = games.filter(f.test).length;
+    return `<button class="chip" type="button" data-filter="${f.id}" aria-pressed="${f.id === state.lib.filter}">${f.label}<span class="n">${nf.format(n)}</span></button>`;
+  }).join('');
+  for (const chip of $('#libChips').children) {
+    chip.onclick = () => {
+      state.lib.filter = chip.dataset.filter;
+      state.lib.limit = LIB_PAGE;
+      renderLibrary();
+    };
+  }
+
+  const test = FILTERS.find((f) => f.id === state.lib.filter).test;
+  const list = games.filter((g) => test(g) && (!q || g.name.toLocaleLowerCase('fr').includes(q))).sort(SORTS[sort]);
+  $('#libCount').textContent = ` ${nf.format(games.length)}`;
+
+  $('#libGrid').innerHTML = list.length
+    ? list.slice(0, limit).map(gameCard).join('')
+    : `<div class="empty" style="grid-column:1/-1">Aucun jeu ne correspond.</div>`;
+
+  const more = $('#libMore');
+  if (list.length > limit) {
+    more.innerHTML = `<button class="btn" type="button">Afficher plus (${nf.format(list.length - limit)} restants)</button>`;
+    more.firstElementChild.onclick = () => {
+      state.lib.limit += LIB_PAGE * 2;
+      renderLibrary();
+    };
+  } else {
+    more.innerHTML = '';
+  }
+}
+
+function gameCard(g) {
+  const st = g.status;
+  let tag = '';
+  let bar = '';
+  if (st.kind === 'platinum') {
+    tag = `<span class="tag plat">${icon('trophy')} Platiné</span>`;
+    bar = `<div class="bar is-plat"><i style="width:100%"></i></div>`;
+  } else if (st.kind === 'progress' || st.kind === 'notstarted') {
+    tag = `<span class="tag pct">${st.a.unlocked}/${st.a.total} · ${fmtPct(st.a.percent)}</span>`;
+    bar = `<div class="bar"><i style="width:${st.a.percent}%"></i></div>`;
+  } else if (st.kind === 'pending') {
+    tag = `<span class="tag pending">…</span>`;
+  } else {
+    tag = `<span class="tag">Sans succès</span>`;
+  }
+
+  const cls = [st.kind === 'platinum' && 'is-plat', g.playtime === 0 && !state.profile.playtimeHidden && 'is-never'].filter(Boolean).join(' ');
+  return `
+    <button class="game ${cls}" data-appid="${g.appid}" type="button">
+      <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</div>
+      <div class="game-body">
+        <div class="game-name" title="${esc(g.name)}">${esc(g.name)}</div>
+        <div class="game-meta">
+          <span class="hours">${icon('clock')} ${playLabel(g)}</span>
+          ${tag}
+        </div>
+        ${bar}
+      </div>
+    </button>`;
+}
+
+// ---------------------------------------------------------------- fiche jeu
+
+const modal = $('#gameModal');
+modal.addEventListener('click', (e) => {
+  if (e.target === modal || e.target.closest('.modal-close')) modal.close();
+});
+
+async function openGame(appid) {
+  const g = state.profile?.games.find((x) => x.appid === appid);
+  if (!g) return;
+  const st = statusOf(g);
+  const a = st.a;
+
+  modal.innerHTML = `
+    <div class="modal-hero">
+      <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], g.name)}</div>
+      <button class="modal-close" type="button" aria-label="Fermer">${icon('close')}</button>
+    </div>
+    <div class="modal-head">
+      ${
+        st.kind === 'platinum'
+          ? `<div class="plat-ribbon">${icon('trophy')}<span><strong>Platiné</strong> le ${fmtDate(a.times.at(-1))}</span>${rarityPill(g.appid, { long: true })}</div>`
+          : ''
+      }
+      <h2 id="modalTitle">${esc(g.name)}</h2>
+      <div class="modal-stats">
+        <span>${icon('clock')} <strong>${playLabel(g)}</strong></span>
+        ${g.lastPlayed ? `<span>Dernière session : <strong>${fmtDate(g.lastPlayed)}</strong></span>` : ''}
+        ${a?.total ? `<span>Succès : <strong>${a.unlocked} / ${a.total}</strong> (${fmtPct(a.percent)})</span>` : ''}
+        <a href="https://store.steampowered.com/app/${g.appid}" target="_blank" rel="noopener">Page Steam ↗</a>
+      </div>
+      ${a?.total ? `<div class="bar ${st.kind === 'platinum' ? 'is-plat' : ''}"><i style="width:${a.percent}%"></i></div>` : ''}
+    </div>
+    <div class="modal-body" id="modalBody">
+      ${g.hasStats ? `<div class="loading" style="min-height:160px"><div class="spinner"></div></div>` : `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`}
+    </div>`;
+  modal.showModal();
+
+  if (!g.hasStats) return;
+  try {
+    const data = await getJSON(`/api/game/${state.steamid}/${appid}`);
+    if (!modal.open) return;
+    renderAchievements(data.achievements);
+  } catch (err) {
+    $('#modalBody').innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+  }
+}
+
+function rarityTag(r) {
+  if (r == null) return '';
+  const cls = r < 5 ? 'ultra' : r < 15 ? 'rare' : '';
+  const label = r < 1 ? r.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(r);
+  return `<span class="rarity ${cls}" title="Pourcentage de joueurs l’ayant débloqué">${label} % des joueurs</span>`;
+}
+
+function renderAchievements(list) {
+  const body = $('#modalBody');
+  if (!list.length) {
+    body.innerHTML = `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`;
+    return;
+  }
+  const unlocked = list.filter((x) => x.achieved).sort((a, b) => (b.unlocktime ?? 0) - (a.unlocktime ?? 0));
+  const locked = list.filter((x) => !x.achieved).sort((a, b) => (b.rarity ?? -1) - (a.rarity ?? -1));
+  const rarest = unlocked.filter((x) => x.rarity != null).sort((a, b) => a.rarity - b.rarity)[0];
+
+  const row = (x) => {
+    const secret = x.hidden && !x.achieved;
+    return `
+      <div class="ach ${x.achieved ? '' : 'locked'}">
+        ${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy">` : `<span class="ach-icon">${icon('lock')}</span>`}
+        <div style="min-width:0">
+          <div class="ach-name">${esc(x.name)}</div>
+          <div class="ach-desc">${secret ? '<em>Succès caché</em>' : esc(x.description)}</div>
+        </div>
+        <div class="ach-side">
+          ${rarityTag(x.rarity)}
+          <div>${x.achieved ? fmtDate(x.unlocktime) : 'Verrouillé'}</div>
+        </div>
+      </div>`;
+  };
+
+  body.innerHTML = `
+    ${rarest ? `<div class="ach-group">Ton succès le plus rare</div>${row(rarest)}` : ''}
+    ${unlocked.length ? `<div class="ach-group">Débloqués · ${unlocked.length}</div>${unlocked.map(row).join('')}` : ''}
+    ${locked.length ? `<div class="ach-group">Restants · ${locked.length} — du plus accessible au plus rare</div>${locked.map(row).join('')}` : ''}`;
+}
+
+// ---------------------------------------------------------------- infobulles
+
+const tooltip = $('#tooltip');
+document.addEventListener('pointermove', (e) => {
+  const el = e.target.closest?.('[data-tip]');
+  if (!el) {
+    tooltip.hidden = true;
+    return;
+  }
+  const [title, ...rest] = el.dataset.tip.split('\n');
+  tooltip.innerHTML = `<strong>${esc(title)}</strong>${rest.length ? `\n${esc(rest.join('\n'))}` : ''}`;
+  tooltip.hidden = false;
+  const { offsetWidth: w, offsetHeight: h } = tooltip;
+  const x = Math.min(window.innerWidth - w - 8, e.clientX + 14);
+  const y = e.clientY - h - 12 < 8 ? e.clientY + 18 : e.clientY - h - 12;
+  tooltip.style.left = `${Math.max(8, x)}px`;
+  tooltip.style.top = `${y}px`;
+});
+document.addEventListener('pointerleave', () => (tooltip.hidden = true));
+
+boot();

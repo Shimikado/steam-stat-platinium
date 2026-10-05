@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Steam Stats</title>
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%23c9d8ee' d='M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V18h3v3H8v-3h3v-3.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3zm0 4H6v1a2 2 0 0 0 1 1.7zm10 0v2.7A2 2 0 0 0 18 8V7z'/></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/extras.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trophy" /></svg>
+        <span>Steam&nbsp;Stats</span>
+      </a>
+      <form id="topSearch" class="top-search" role="search" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-search" /></svg>
+        <input
+          name="q"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Voir un autre profil : pseudo, URL ou SteamID"
+          aria-label="Rechercher un profil Steam"
+        />
+      </form>
+      <nav id="topActions" class="top-actions"></nav>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+    <main id="app"></main>
+
+    <dialog id="gameModal" class="modal" aria-labelledby="modalTitle"></dialog>
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <symbol id="i-trophy" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M7 3h10v2h3v3a4 4 0 0 1-4 4h-.3A5 5 0 0 1 13 14.9V18h3v3H8v-3h3v-3.1A5 5 0 0 1 8.3 12H8a4 4 0 0 1-4-4V5h3zm0 4H6v1a2 2 0 0 0 1 1.7zm10 0v2.7A2 2 0 0 0 18 8V7z"
+        />
+      </symbol>
+      <symbol id="i-steam" viewBox="0 0 24 24">
+        <path
+          fill="currentColor"
+          d="M12 2a10 10 0 0 0-9.96 9.17l5.36 2.22a2.8 2.8 0 0 1 1.6-.5h.16l2.39-3.46v-.05a3.78 3.78 0 1 1 3.78 3.78h-.09l-3.4 2.43v.13a2.84 2.84 0 0 1-5.62.56L2.4 14.7A10 10 0 1 0 12 2m-4.72 15.18-1.23-.5a2.13 2.13 0 1 0 1.17-2.92l1.27.53a1.57 1.57 0 1 1-1.2 2.9m9.72-7.73a2.52 2.52 0 1 0-2.52 2.52A2.52 2.52 0 0 0 17 9.45m-4.4 0a1.89 1.89 0 1 1 1.88 1.89 1.89 1.89 0 0 1-1.88-1.89"
+        />
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20m0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16m1 3v4.6l3.2 1.9-1 1.7L11 12.7V7z" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M17.6 6.4A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.8-4.2L13 11h7V4z" />
+      </symbol>
+      <symbol id="i-close" viewBox="0 0 24 24">
+        <path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z" />
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3m0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10" />
+      </symbol>
+      <symbol id="i-users" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M9 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8m0 10c4 0 7 2 7 4.5V21H2v-2.5C2 16 5 14 9 14m8-9.9A4 4 0 0 1 17 12a4 4 0 0 0 0-7.9M18 14.3c2.4.6 4 2.1 4 4.2V21h-4v-2.5c0-1.6-.7-3-2-4.1z" />
+      </symbol>
+      <symbol id="i-share" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M18 2a3 3 0 1 1-2.2 5l-7 3.7a3 3 0 0 1 0 2.6l7 3.7a3 3 0 1 1-.9 1.8l-7.1-3.7a3 3 0 1 1 0-4.2l7.1-3.7A3 3 0 0 1 18 2" />
+      </symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M5 3h8v2H5v14h8v2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m11.6 4.6L21 12l-4.4 4.4-1.4-1.4 2-2H9v-2h8.2l-2-2z" />
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 3a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9m0 11c4.4 0 8 2.2 8 5v2H4v-2c0-2.8 3.6-5 8-5" />
+      </symbol>
+      <symbol id="i-sparkle" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 1.5 14.2 9.8 22.5 12l-8.3 2.2L12 22.5l-2.2-8.3L1.5 12l8.3-2.2z" />
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 2a5 5 0 0 1 5 5v3h1a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h1V7a5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3v3h6V7a3 3 0 0 0-3-3" />
+      </symbol>
+    </svg>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
