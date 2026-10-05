@@ -85,20 +85,16 @@ export function confetti({ count = 180, duration = 3800 } = {}) {
 }
 
 /**
- * items : { plats: [{appid, name}], badges: [{emoji, name, desc}], rank: {name, tone} | null }
+ * plats : [{appid, name}] · rank : {name, tone} | null
  */
-export function celebrate({ plats = [], badges = [], rank = null }) {
-  if (!plats.length && !badges.length && !rank) return;
+export function celebrate({ plats = [], rank = null }) {
+  if (!plats.length && !rank) return;
 
   const title = plats.length
     ? plats.length > 1
       ? `${plats.length} nouveaux platines !`
       : 'Nouveau platine !'
-    : rank
-      ? `Rang ${rank.name} atteint !`
-      : badges.length > 1
-        ? `${badges.length} badges débloqués !`
-        : 'Badge débloqué !';
+    : `Rang ${rank.name} atteint !`;
 
   const dialog = document.createElement('dialog');
   dialog.className = 'celebration';
@@ -122,13 +118,6 @@ export function celebrate({ plats = [], badges = [], rank = null }) {
         : ''
     }
     ${rank && plats.length ? `<p class="celebration-rank tone-${rank.tone}">${icon('trophy')} Rang ${esc(rank.name)} atteint</p>` : ''}
-    ${
-      badges.length
-        ? `<ul class="celebration-badges">${badges
-            .map((b) => `<li><span class="celebration-badge-medal">${b.emoji}</span><span><strong>${esc(b.name)}</strong><small>${esc(b.desc)}</small></span></li>`)
-            .join('')}</ul>`
-        : ''
-    }
     <button class="btn btn-primary btn-lg celebration-close" type="button">Trop bien !</button>`;
   document.body.append(dialog);
   dialog.addEventListener('close', () => dialog.remove());

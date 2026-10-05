@@ -7,7 +7,7 @@ import {
   getAchievementSummaries,
   getFriends,
   getGameAchievements,
-  getPlatinumRarities,
+  getDifficulties,
   getProfile,
   resolveSteamId,
 } from './src/steam.js';
@@ -186,13 +186,13 @@ api.get('/friends/:steamid', async (req, res) => {
   res.json(await getFriends(steamidParam(req)));
 });
 
-api.get('/rarity', async (req, res) => {
+api.get('/difficulty/:steamid', async (req, res) => {
   const appids = String(req.query.appids ?? '')
     .split(',')
     .map(Number)
     .filter((n) => Number.isInteger(n) && n > 0)
     .slice(0, 50);
-  res.json(await getPlatinumRarities(appids));
+  res.json(await getDifficulties(steamidParam(req), appids));
 });
 
 api.get('/game/:steamid/:appid', async (req, res) => {

@@ -66,6 +66,25 @@ const games = CATALOG.map(([appid, name], i) => {
   };
 });
 
+/** Succès fictifs d'un jeu, déterministes pour que difficulté et fiche jeu concordent. */
+function demoAchievements(g) {
+  if (!g) return [];
+  const rand = rng(g.appid * 7);
+  const order = Array.from({ length: g._ach.total }, (_, i) => i).sort(() => rand() - 0.5);
+  const unlockedSet = new Set(order.slice(0, g._ach.unlocked));
+  let t = 0;
+  return Array.from({ length: g._ach.total }, (_, i) => ({
+    id: `ACH_${i}`,
+    name: `Succès n°${i + 1}`,
+    description: 'Description fictive du succès en mode démo.',
+    icon: null,
+    hidden: rand() < 0.1,
+    achieved: unlockedSet.has(i),
+    unlocktime: unlockedSet.has(i) ? g._ach.times[t++] : null,
+    rarity: Math.round(rand() ** 2 * 1000) / 10 + 0.1,
+  }));
+}
+
 export function demoRouter() {
   const r = express.Router();
 
@@ -119,31 +138,25 @@ export function demoRouter() {
     });
   });
 
-  r.get('/rarity', (req, res) => {
+  r.get('/difficulty/:steamid', (req, res) => {
     const ids = String(req.query.appids ?? '').split(',').map(Number);
-    res.json(ids.map((appid) => ({ appid, platinumMax: Math.round(rng(appid * 3)() ** 2.5 * 400) / 10 + 0.2 })));
+    res.json(
+      ids.map((appid) => {
+        const list = demoAchievements(games.find((x) => x.appid === appid));
+        const locked = list.filter((x) => !x.achieved);
+        return {
+          appid,
+          platinumMax: list.length ? Math.min(...list.map((x) => x.rarity)) : null,
+          hardest: locked.length ? Math.min(...locked.map((x) => x.rarity)) : null,
+          remaining: locked.length,
+        };
+      }),
+    );
   });
 
   r.get('/game/:steamid/:appid', (req, res) => {
-    const g = games.find((x) => x.appid === Number(req.params.appid));
-    if (!g) return res.json({ appid: Number(req.params.appid), achievements: [] });
-    const rand = rng(g.appid * 7);
-    const order = Array.from({ length: g._ach.total }, (_, i) => i).sort(() => rand() - 0.5);
-    const unlockedSet = new Set(order.slice(0, g._ach.unlocked));
-    let t = 0;
-    res.json({
-      appid: g.appid,
-      achievements: Array.from({ length: g._ach.total }, (_, i) => ({
-        id: `ACH_${i}`,
-        name: `Succès n°${i + 1}`,
-        description: 'Description fictive du succès en mode démo.',
-        icon: null,
-        hidden: rand() < 0.1,
-        achieved: unlockedSet.has(i),
-        unlocktime: unlockedSet.has(i) ? g._ach.times[t++] : null,
-        rarity: Math.round(rand() ** 2 * 1000) / 10,
-      })),
-    });
+    const appid = Number(req.params.appid);
+    res.json({ appid, achievements: demoAchievements(games.find((x) => x.appid === appid)) });
   });
 
   return r;

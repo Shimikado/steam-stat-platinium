@@ -52,4 +52,20 @@ export function rarityTier(p) {
   return { id: 'common', label: 'Commun' };
 }
 
+/**
+ * Rang de difficulté d'un platine à faire, d'après le succès restant le plus rare
+ * (le % de joueurs l'ayant débloqué) : c'est lui qui décide si le platine est atteignable.
+ */
+export const DIFFICULTY_TIERS = [
+  { id: 'easy', label: 'Facile', min: 25, hint: 'Tous les succès restants sont débloqués par 25 % des joueurs ou plus' },
+  { id: 'doable', label: 'Faisable', min: 8, hint: 'Le succès restant le plus dur est débloqué par 8 à 25 % des joueurs' },
+  { id: 'tough', label: 'Coriace', min: 2, hint: 'Le succès restant le plus dur est débloqué par 2 à 8 % des joueurs' },
+  { id: 'legendary', label: 'Légendaire', min: 0, hint: 'Au moins un succès restant est débloqué par moins de 2 % des joueurs' },
+];
+
+export function difficultyTier(hardest) {
+  if (hardest == null) return null;
+  return DIFFICULTY_TIERS.find((t) => hardest >= t.min);
+}
+
 export const fmtRarity = (p) => `${p < 10 ? p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(p)} %`;

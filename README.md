@@ -22,9 +22,10 @@ npm start              # http://localhost:3000
 - Temps de jeu total, jeux possédés, jamais lancés, 2 dernières semaines, temps sur Steam Deck
 - **Vitrine des platines** : bannières « Dernier platine » et « Platine le plus rare », cartes holographiques et rareté de chaque platine. La rareté est une borne haute : on prend le succès le plus rare du jeu, d'après les statistiques mondiales de Steam.
 - **Presque platinés** (≥ 75 %), avec le nombre de succès restants
-- **Célébration des nouveautés** : sur ton propre profil, l'app compare avec ta visite précédente (mémorisée dans le navigateur). Nouveaux platines, nouveaux badges et changement de rang déclenchent des confettis et une étiquette « Nouveau » dans la vitrine.
-- **16 badges** à débloquer (Collectionneur, Chasseur d'ombres, Speedrunner, Oiseau de nuit…) avec leur progression
-- **Ton prochain platine** : les 3 jeux dont les succès restants sont les plus accessibles, classés selon le pourcentage mondial de joueurs qui les ont
+- **Célébration des nouveautés** : sur ton propre profil, l'app compare avec ta visite précédente (mémorisée dans le navigateur). Les nouveaux platines et les changements de rang déclenchent des confettis et une étiquette « Nouveau » dans la vitrine.
+- **Difficulté des platines à faire** : chaque jeu commencé est classé (Facile, Faisable, Coriace, Légendaire) selon le succès restant le plus rare. On obtient une tier list, un tri « Platine le plus accessible » dans la bibliothèque et les 3 « prochains platines » les plus à portée.
+- **Succès ajoutés par une mise à jour** : Steam ne donne pas la date d'ajout des succès, donc l'app mémorise le nombre total de succès de chaque jeu dans le navigateur et repère les hausses d'une visite à l'autre. Les platines « perdus » sont signalés « à reconquérir ».
+- **Fiche jeu** : les succès manquants passent en premier, du plus accessible au plus rare.
 - **Carte de chasseur** : une image PNG de 1200×630 (rang, platines, plus rares) à copier dans Discord ou à télécharger
 - Succès débloqués par mois, top 10 du temps de jeu, répartition de la complétion
 - Anecdotes : premier succès, journée record, platine le plus rapide ou le plus long, vieil amour délaissé…

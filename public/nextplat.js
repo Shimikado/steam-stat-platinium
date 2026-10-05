@@ -1,43 +1,29 @@
-import { esc, getJSON, artImg, fmtRarity } from './utils.js';
+import { esc, getJSON, artImg, fmtRarity, difficultyTier } from './utils.js';
 
-// « Ton prochain platine » : parmi les jeux bien avancés, ceux dont les succès restants sont les plus accessibles.
+// « Ton prochain platine » : les jeux commencés dont les succès restants sont les plus accessibles.
 
-const MAX_CANDIDATES = 8;
+/** Classement : succès restant le plus dur le plus courant d'abord, puis le moins de succès restants. */
+export const byAccessibility = (diff) => (x, y) => {
+  const dx = diff.get(x.g.appid);
+  const dy = diff.get(y.g.appid);
+  return (dy?.hardest ?? -1) - (dx?.hardest ?? -1) || (dx?.remaining ?? 1e9) - (dy?.remaining ?? 1e9);
+};
 
-function difficulty(hardest) {
-  if (hardest == null) return { id: 'unknown', label: 'Difficulté inconnue' };
-  if (hardest >= 25) return { id: 'easy', label: 'Facile' };
-  if (hardest >= 8) return { id: 'doable', label: 'Faisable' };
-  if (hardest >= 2) return { id: 'tough', label: 'Coriace' };
-  return { id: 'legendary', label: 'Légendaire' };
-}
-
-export async function findNextPlatinums(steamid, progress) {
-  const candidates = progress
-    .filter(({ a }) => a.percent >= 50 || a.total - a.unlocked <= 10)
-    .sort((x, y) => x.a.total - x.a.unlocked - (y.a.total - y.a.unlocked))
-    .slice(0, MAX_CANDIDATES);
+export async function findNextPlatinums(steamid, progress, diff) {
+  const top = progress.filter(({ g }) => diff.get(g.appid)?.hardest != null).sort(byAccessibility(diff)).slice(0, 3);
 
   const results = await Promise.all(
-    candidates.map(async ({ g, a }) => {
+    top.map(async ({ g, a }) => {
       try {
         const { achievements } = await getJSON(`/api/game/${steamid}/${g.appid}`);
         const remaining = achievements.filter((x) => !x.achieved).sort((x, y) => (y.rarity ?? -1) - (x.rarity ?? -1));
-        if (!remaining.length) return null;
-        const known = remaining.map((x) => x.rarity).filter((r) => r != null);
-        const hardest = known.length === remaining.length ? Math.min(...known) : null;
-        return { g, a, remaining, hardest, level: difficulty(hardest) };
+        return remaining.length ? { g, a, remaining, level: difficultyTier(diff.get(g.appid).hardest) } : null;
       } catch {
         return null;
       }
     }),
   );
-
-  // Le plus accessible d'abord : le succès le plus dur restant est encore courant, puis le moins de succès restants.
-  return results
-    .filter(Boolean)
-    .sort((x, y) => (y.hardest ?? -1) - (x.hardest ?? -1) || x.remaining.length - y.remaining.length)
-    .slice(0, 3);
+  return results.filter(Boolean);
 }
 
 export function renderNextPlatinums(list) {

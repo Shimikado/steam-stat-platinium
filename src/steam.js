@@ -264,16 +264,26 @@ async function getGlobalPercentages(appid) {
 }
 
 /**
- * Rareté d'un platine : le succès le plus rare du jeu borne le % de joueurs ayant tout débloqué.
- * Renvoie { appid, platinumMax } où platinumMax est ce majorant en %.
+ * Difficulté des platines, d'après les pourcentages mondiaux de déblocage :
+ * - platinumMax : % du succès le plus rare du jeu, qui majore le % de joueurs ayant tout débloqué ;
+ * - hardest : % du succès le plus rare parmi ceux qu'il reste au joueur (null s'il n'en reste aucun) ;
+ * - remaining : nombre de succès restants.
  */
-export async function getPlatinumRarities(appids) {
+export async function getDifficulties(steamid, appids) {
   return mapLimit(appids, 6, async (appid) => {
     try {
-      const values = Object.values(await getGlobalPercentages(appid)).filter(Number.isFinite);
-      return { appid, platinumMax: values.length ? Math.min(...values) : null };
+      const [list, global] = await Promise.all([getPlayerAchievementList(steamid, appid), getGlobalPercentages(appid)]);
+      const values = Object.values(global).filter(Number.isFinite);
+      const locked = (list ?? []).filter(([, achieved]) => achieved !== 1).map(([name]) => global[name]);
+      const known = locked.filter(Number.isFinite);
+      return {
+        appid,
+        platinumMax: values.length ? Math.min(...values) : null,
+        hardest: locked.length && known.length === locked.length ? Math.min(...known) : null,
+        remaining: locked.length,
+      };
     } catch {
-      return { appid, platinumMax: null };
+      return { appid, platinumMax: null, hardest: null, remaining: null };
     }
   });
 }

@@ -1,4 +1,4 @@
-/* Célébrations, badges, prochain platine et carte de chasseur. */
+/* Célébrations, prochain platine, difficulté et carte de chasseur. */
 
 /* ---------------------------------------------------------------- célébration */
 
@@ -191,142 +191,10 @@
   height: 16px;
 }
 
-.celebration-badges {
-  position: relative;
-  list-style: none;
-  margin: 16px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 8px;
-  text-align: left;
-}
-
-.celebration-badges li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.celebration-badges strong {
-  display: block;
-  font-size: 14px;
-}
-
-.celebration-badges small {
-  color: var(--text-2);
-  font-size: 12.5px;
-}
-
-.celebration-badge-medal {
-  font-size: 26px;
-}
 
 .celebration-close {
   position: relative;
   margin-top: 24px;
-}
-
-/* ---------------------------------------------------------------- badges */
-
-.badges {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 10px;
-}
-
-.badge {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.badge-medal {
-  flex-shrink: 0;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 26px;
-  background: var(--surface-2);
-  border: 2px dashed var(--surface-3);
-  filter: grayscale(1);
-  opacity: 0.45;
-}
-
-.badge.is-done {
-  border-color: rgba(185, 203, 228, 0.35);
-  background:
-    linear-gradient(135deg, rgba(244, 248, 255, 0.07), transparent 60%),
-    var(--surface);
-}
-
-.badge.is-done .badge-medal {
-  filter: none;
-  opacity: 1;
-  border: 0;
-  background:
-    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.9), transparent 45%),
-    var(--plat-gradient);
-  box-shadow:
-    0 0 0 3px rgba(185, 203, 228, 0.18),
-    0 6px 18px rgba(185, 203, 228, 0.2);
-}
-
-.badge-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-.badge-text strong {
-  font-size: 14px;
-}
-
-.badge-text small {
-  color: var(--text-2);
-  font-size: 12.5px;
-  line-height: 1.35;
-}
-
-.badge:not(.is-done) .badge-text strong {
-  color: var(--text-2);
-}
-
-.badge-done {
-  margin-top: 4px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--plat-2);
-}
-
-.badge-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.badge-progress .bar {
-  flex: 1;
-  min-width: 50px;
-  height: 4px;
 }
 
 /* ---------------------------------------------------------------- prochain platine */
@@ -540,6 +408,218 @@
 .share-status {
   color: var(--text-2);
   font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- tier list des platines à faire */
+
+.tiers {
+  display: grid;
+  gap: 8px;
+}
+
+.tier-row {
+  --tier: var(--surface-3);
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.tier-easy {
+  --tier: #7ee08f;
+}
+.tier-doable {
+  --tier: #5ab8ff;
+}
+.tier-tough {
+  --tier: #ffb36b;
+}
+.tier-legendary {
+  --tier: #c58bff;
+}
+
+.tier-label {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--tier) 14%, var(--surface));
+  border-right: 3px solid var(--tier);
+  cursor: help;
+}
+
+.tier-label strong {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--tier);
+}
+
+.tier-label span {
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.tier-items {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.tier-item {
+  position: relative;
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tier-item .art {
+  aspect-ratio: 460 / 215;
+  border-radius: 8px;
+  transition: transform 0.2s var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tier-item:hover .art {
+    transform: translateY(-2px);
+    box-shadow: 0 0 0 2px var(--tier);
+  }
+}
+
+.tier-left {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.tier-item .bar {
+  height: 4px;
+}
+
+.tier-item .bar > i {
+  background: var(--tier);
+}
+
+.tier-empty {
+  align-self: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px 4px;
+}
+
+@media (max-width: 560px) {
+  .tier-row {
+    grid-template-columns: 1fr;
+  }
+
+  .tier-label {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    border-right: 0;
+    border-bottom: 3px solid var(--tier);
+  }
+
+  .tier-item {
+    flex-basis: 128px;
+  }
+}
+
+/* ---------------------------------------------------------------- bibliothèque : pied de carte */
+
+.game-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.game-foot .difficulty {
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+.added-tag {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffe08a;
+  background: rgba(255, 224, 138, 0.12);
+}
+
+/* ---------------------------------------------------------------- succès ajoutés */
+
+.added-card .near-meta {
+  justify-content: flex-start;
+}
+
+.added-sub {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.lost-tag {
+  background: linear-gradient(110deg, #ffe9a8, #ffd36e, #ffe9a8);
+  color: #3a2a00;
+}
+
+.added-card.is-lost {
+  border-color: rgba(255, 211, 110, 0.45);
+}
+
+/* ---------------------------------------------------------------- fiche jeu : ce qu'il reste */
+
+.notice-added,
+.notice-todo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.notice-added {
+  color: #ffe08a;
+  border-color: rgba(255, 224, 138, 0.3);
+  background: rgba(255, 224, 138, 0.06);
+}
+
+.notice-added svg {
+  width: 16px;
+  height: 16px;
+}
+
+.notice-todo strong {
+  color: var(--text);
+}
+
+.ach-group-todo {
+  color: var(--accent-strong);
+}
+
+.ach.todo .ach-name {
+  color: var(--text);
+}
+
+.ach.todo img {
+  opacity: 0.85;
 }
 
 @media (prefers-reduced-motion: reduce) {

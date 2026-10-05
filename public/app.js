@@ -17,10 +17,12 @@ import {
   gameIconUrl,
   rarityTier,
   fmtRarity,
+  DIFFICULTY_TIERS,
+  difficultyTier,
 } from './utils.js';
 import { celebrate } from './celebrate.js';
-import { computeBadges, renderBadges } from './badges.js';
-import { findNextPlatinums, renderNextPlatinums } from './nextplat.js';
+import { trackNewAchievements } from './tracking.js';
+import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 
 const app = $('#app');
@@ -53,6 +55,9 @@ const state = {
   profile: null,
   ach: new Map(), // appid -> { total, unlocked, percent, times }
   rarity: new Map(), // appid -> % max de joueurs ayant platiné
+  diff: new Map(), // appid -> { hardest, remaining, platinumMax } (difficulté du platine)
+  diffScan: { done: 0, total: 0, running: false },
+  added: new Map(), // appid -> { from, to, at } : succès ajoutés récemment par une mise à jour
   friends: [],
   next: null, // recommandations « prochain platine » (null = pas encore calculées)
   newPlats: new Set(), // platines obtenus depuis la dernière visite
@@ -253,6 +258,9 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.profile = null;
   state.ach = new Map();
   state.rarity = new Map();
+  state.diff = new Map();
+  state.diffScan = { done: 0, total: 0, running: false };
+  state.added = new Map();
   state.friends = [];
   state.next = null;
   state.newPlats = new Set();
@@ -261,7 +269,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   seenPlat.clear();
   lastRankKey = '';
   lastPlatKey = '';
-  lastBadgeKey = '';
+  lastTierKey = '';
   lastNext = undefined;
   window.scrollTo({ top: 0 });
   app.innerHTML = `<div class="loading"><div class="spinner"></div>Chargement de la bibliothèque…</div>`;
@@ -323,7 +331,11 @@ async function scanAchievements(token, refresh) {
   if (token !== state.token) return;
   state.scan.running = false;
   update();
-  await Promise.all([loadRarity(token), loadNext(token)]);
+  detectAddedAchievements();
+  update();
+  await loadDifficulty(token);
+  if (token !== state.token) return;
+  await loadNext(token);
   if (token !== state.token) return;
   $('#shareBtn').disabled = false;
   checkProgress();
@@ -382,14 +394,19 @@ function renderDashboard() {
       <div id="plat"></div>
     </section>
 
-    <section class="section">
-      <div class="section-head"><h2>Badges<span class="count" id="badgeCount"></span></h2><p>Débloqués d’après ton historique de succès</p></div>
-      <div id="badges"></div>
+    <section class="section" id="addedSection" hidden>
+      <div class="section-head"><h2>Nouveaux succès ajoutés</h2><p>Des mises à jour ont ajouté des succès à ces jeux</p></div>
+      <div id="added"></div>
     </section>
 
     <section class="section">
       <div class="section-head"><h2>Ton prochain platine</h2><p>Les jeux dont les succès restants sont les plus accessibles</p></div>
       <div id="nextPlat"></div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Tier list des platines à faire</h2><p>Classés selon le succès restant le plus rare · survole un jeu pour le détail</p></div>
+      <div id="tiers"></div>
     </section>
 
     <section class="section">
@@ -415,6 +432,7 @@ function renderDashboard() {
         <select class="select" id="libSort" aria-label="Trier">
           <option value="playtime">Temps de jeu</option>
           <option value="completion">Complétion</option>
+          <option value="accessible">Platine le plus accessible</option>
           <option value="recent">Joué récemment</option>
           <option value="name">Nom</option>
         </select>
@@ -454,8 +472,9 @@ function update() {
   renderRank(s);
   renderTiles(s);
   renderPlatinum(s);
-  renderBadgeSection(s);
+  renderAdded();
   renderNext();
+  renderTiers(s);
   renderNearly(s);
   renderCharts(s);
   renderFacts(s);
@@ -465,6 +484,14 @@ function update() {
 function renderScan() {
   const el = $('#scan');
   const { done, total, running, error } = state.scan;
+  if (!running && !error && state.diffScan.running) {
+    const d = state.diffScan;
+    el.hidden = false;
+    el.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px"></div>
+       <span>Évaluation de la difficulté des platines… ${d.done} / ${d.total} jeux</span>
+       <div class="bar"><i style="width:${d.total ? (d.done / d.total) * 100 : 0}%"></i></div>`;
+    return;
+  }
   if (!running && !error) {
     el.hidden = true;
     return;
@@ -630,37 +657,88 @@ function renderRank(s) {
     </span>`;
 }
 
-async function loadRarity(token) {
-  const ids = compute().platinum.map((x) => x.g.appid).filter((id) => !state.rarity.has(id));
+// ---------------------------------------------------------------- difficulté des platines
+
+/**
+ * Récupère, pour chaque jeu avec succès, la rareté de son platine et la difficulté de ce qu'il reste.
+ * Ordre : platinés (vitrine), puis jeux commencés (tier list), puis le reste.
+ */
+async function loadDifficulty(token) {
+  const s = compute();
+  const order = [...s.platinum, ...s.progress.sort((x, y) => y.a.percent - x.a.percent)].map((x) => x.g.appid);
+  const others = state.profile.games.filter((g) => g.status.kind === 'notstarted').map((g) => g.appid);
+  const ids = [...order, ...others].filter((id) => !state.diff.has(id));
+
+  state.diffScan = { done: 0, total: ids.length, running: ids.length > 0 };
+  update();
   for (let i = 0; i < ids.length; i += SCAN_BATCH) {
     try {
-      const res = await getJSON(`/api/rarity?appids=${ids.slice(i, i + SCAN_BATCH).join(',')}`);
+      const res = await getJSON(`/api/difficulty/${state.steamid}?appids=${ids.slice(i, i + SCAN_BATCH).join(',')}`);
       if (token !== state.token) return;
-      for (const r of res) if (r.platinumMax != null) state.rarity.set(r.appid, r.platinumMax);
+      for (const r of res) {
+        state.diff.set(r.appid, r);
+        if (r.platinumMax != null) state.rarity.set(r.appid, r.platinumMax);
+      }
     } catch {
-      return; // la rareté est un bonus : on n'affiche simplement pas les pastilles
+      break; // la difficulté est un bonus : on garde ce qui a pu être calculé
     }
-    update();
+    state.diffScan.done = Math.min(i + SCAN_BATCH, ids.length);
+    scheduleUpdate();
   }
+  if (token !== state.token) return;
+  state.diffScan.running = false;
+  update();
 }
 
-// ---------------------------------------------------------------- badges & prochain platine
+let lastTierKey = '';
+function renderTiers(s) {
+  const el = $('#tiers');
+  const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null);
+  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}`;
+  if (key === lastTierKey) return;
+  lastTierKey = key;
 
-let lastBadgeKey = '';
-function renderBadgeSection(s) {
-  const el = $('#badges');
-  if (state.scan.running) {
-    if (lastBadgeKey !== 'pending') el.innerHTML = `<div class="empty">Les badges seront calculés à la fin de l’analyse…</div>`;
-    lastBadgeKey = 'pending';
+  if (!games.length) {
+    el.innerHTML = `<div class="empty">${
+      state.scan.running || state.diffScan.running ? 'Évaluation de la difficulté de tes platines…' : 'Aucun jeu commencé à classer pour le moment.'
+    }</div>`;
     return;
   }
-  const list = computeBadges({ s, rarity: state.rarity, playtimeHidden: state.profile.playtimeHidden });
-  const key = list.map((b) => `${b.id}:${b.progress.toFixed(2)}`).join('|');
-  if (key === lastBadgeKey) return;
-  lastBadgeKey = key;
-  $('#badgeCount').textContent = ` ${list.filter((b) => b.done).length} / ${list.length}`;
-  el.innerHTML = renderBadges(list);
+
+  const rows = DIFFICULTY_TIERS.map((tier) => ({
+    tier,
+    items: games
+      .filter((x) => difficultyTier(state.diff.get(x.g.appid).hardest) === tier)
+      .sort(byAccessibility(state.diff)),
+  }));
+
+  el.innerHTML = `<div class="tiers">${rows
+    .map(
+      ({ tier, items }) => `
+      <div class="tier-row tier-${tier.id}">
+        <div class="tier-label" title="${esc(tier.hint)}"><strong>${tier.label}</strong><span>${items.length} jeu${items.length > 1 ? 'x' : ''}</span></div>
+        <div class="tier-items">${
+          items.length
+            ? items
+                .map(({ g, a }) => {
+                  const d = state.diff.get(g.appid);
+                  const tip = `${g.name}\nPlus que ${d.remaining} succès · ${Math.round(a.percent)} % fait\nSuccès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs`;
+                  return `
+              <button class="tier-item" data-appid="${g.appid}" type="button" data-tip="${esc(tip)}">
+                <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</span>
+                <span class="tier-left">${d.remaining} restant${d.remaining > 1 ? 's' : ''}</span>
+                <span class="bar"><i style="width:${a.percent}%"></i></span>
+              </button>`;
+                })
+                .join('')
+            : '<span class="tier-empty">Aucun jeu</span>'
+        }</div>
+      </div>`,
+    )
+    .join('')}</div>`;
 }
+
+// ---------------------------------------------------------------- prochain platine
 
 let lastNext;
 function renderNext() {
@@ -670,34 +748,74 @@ function renderNext() {
   if (state.next === null) {
     el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Recherche des succès les plus accessibles…'}</div>`;
   } else if (!state.next.length) {
-    el.innerHTML = `<div class="empty">Aucun jeu assez avancé pour l’instant : lance-toi dans un jeu et reviens voir !</div>`;
+    el.innerHTML = `<div class="empty">Aucun jeu commencé à recommander pour l’instant : lance-toi dans un jeu et reviens voir !</div>`;
   } else {
     el.innerHTML = renderNextPlatinums(state.next);
   }
 }
 
 async function loadNext(token) {
-  const next = await findNextPlatinums(state.steamid, compute().progress);
+  const next = await findNextPlatinums(state.steamid, compute().progress, state.diff);
   if (token !== state.token) return;
   state.next = next;
   update();
+}
+
+// ---------------------------------------------------------------- succès ajoutés par des mises à jour
+
+function detectAddedAchievements() {
+  const entries = [...state.ach.values()].filter((a) => a.total > 0).map((a) => [a.appid, a.total]);
+  state.added = trackNewAchievements(entries);
+}
+
+/** Jeux de ce profil qui ont gagné des succès récemment, les platines « perdus » en premier. */
+function addedForProfile() {
+  return state.profile.games
+    .filter((g) => state.added.has(g.appid) && state.ach.get(g.appid)?.total)
+    .map((g) => {
+      const info = state.added.get(g.appid);
+      const a = state.ach.get(g.appid);
+      // Tous les anciens succès sont faits mais pas les nouveaux : c'était un platine.
+      const lostPlat = a.unlocked >= info.from && a.unlocked < a.total;
+      return { g, a, info, lostPlat };
+    })
+    .sort((x, y) => Number(y.lostPlat) - Number(x.lostPlat) || y.info.at - x.info.at);
+}
+
+function renderAdded() {
+  const section = $('#addedSection');
+  const list = state.scan.running ? [] : addedForProfile();
+  section.hidden = !list.length;
+  if (!list.length) return;
+  $('#added').innerHTML = `<div class="near-list">${list
+    .map(
+      ({ g, a, info, lostPlat }) => `
+      <button class="near added-card ${lostPlat ? 'is-lost' : ''}" data-appid="${g.appid}" type="button">
+        <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</div>
+        <div style="min-width:0">
+          <div class="near-name">${esc(g.name)}</div>
+          <div class="near-meta"><span><strong>+${info.to - info.from}</strong> succès · repéré le ${fmtDate(info.at)}</span></div>
+          ${
+            lostPlat
+              ? `<span class="tag lost-tag">${icon('trophy')} Platine à reconquérir</span>`
+              : `<span class="added-sub">${a.unlocked} / ${a.total} débloqués</span>`
+          }
+        </div>
+      </button>`,
+    )
+    .join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- nouveautés depuis la dernière visite
 
 const storeKey = (id) => `steam-stats:v1:${id}`;
 
-/** Compare avec la visite précédente (sur ce navigateur) et fête les nouveaux platines, badges et rangs. */
+/** Compare avec la visite précédente (sur ce navigateur) et fête les nouveaux platines et rangs. */
 function checkProgress() {
   if (!state.me || state.steamid !== state.me) return;
   const s = compute();
-  const badges = computeBadges({ s, rarity: state.rarity, playtimeHidden: state.profile.playtimeHidden });
   const rank = rankOf(s.platinum.length);
-  const snapshot = {
-    plats: s.platinum.map((x) => x.g.appid),
-    badges: badges.filter((b) => b.done).map((b) => b.id),
-    rank: rank.tone,
-  };
+  const snapshot = { plats: s.platinum.map((x) => x.g.appid), rank: rank.tone };
 
   let prev = null;
   try {
@@ -710,7 +828,6 @@ function checkProgress() {
 
   const before = new Set(prev.plats);
   const newPlats = s.platinum.filter((x) => !before.has(x.g.appid));
-  const newBadges = badges.filter((b) => b.done && !prev.badges?.includes(b.id));
   const tier = (tone) => RANKS.findIndex((r) => r.tone === tone);
   const rankUp = tier(rank.tone) > tier(prev.rank) ? rank : null;
 
@@ -718,12 +835,10 @@ function checkProgress() {
     state.newPlats = new Set(newPlats.map((x) => x.g.appid));
     update();
   }
-  celebrate({
-    plats: newPlats.map((x) => ({ appid: x.g.appid, name: x.g.name })),
-    badges: newBadges,
-    rank: rankUp,
-  });
+  celebrate({ plats: newPlats.map((x) => ({ appid: x.g.appid, name: x.g.name })), rank: rankUp });
 }
+
+
 
 // ---------------------------------------------------------------- carte de chasseur
 
@@ -1202,6 +1317,12 @@ const SORTS = {
   playtime: (a, b) => b.playtime - a.playtime,
   completion: (a, b) => (b.status.a?.percent ?? -1) - (a.status.a?.percent ?? -1) || b.playtime - a.playtime,
   recent: (a, b) => b.lastPlayed - a.lastPlayed,
+  // Platines restants les plus accessibles d'abord ; platinés et jeux sans données en fin de liste.
+  accessible: (a, b) => {
+    const da = a.status.kind === 'platinum' ? null : state.diff.get(a.appid);
+    const db = b.status.kind === 'platinum' ? null : state.diff.get(b.appid);
+    return (db?.hardest ?? -1) - (da?.hardest ?? -1) || (da?.remaining ?? 1e9) - (db?.remaining ?? 1e9) || b.playtime - a.playtime;
+  },
   name: (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }),
 };
 
@@ -1259,6 +1380,13 @@ function gameCard(g) {
     tag = `<span class="tag">Sans succès</span>`;
   }
 
+  const tier = st.kind === 'progress' || st.kind === 'notstarted' ? difficultyTier(state.diff.get(g.appid)?.hardest) : null;
+  const added = state.added.get(g.appid);
+  const foot = [
+    tier ? `<span class="difficulty diff-${tier.id}">${tier.label}</span>` : '',
+    added ? `<span class="added-tag">${addedLabel(added)}</span>` : '',
+  ].join('');
+
   const cls = [st.kind === 'platinum' && 'is-plat', g.playtime === 0 && !state.profile.playtimeHidden && 'is-never'].filter(Boolean).join(' ');
   return `
     <button class="game ${cls}" data-appid="${g.appid}" type="button">
@@ -1270,6 +1398,7 @@ function gameCard(g) {
           ${tag}
         </div>
         ${bar}
+        ${foot ? `<div class="game-foot">${foot}</div>` : ''}
       </div>
     </button>`;
 }
@@ -1306,6 +1435,7 @@ async function openGame(appid) {
         <a href="https://store.steampowered.com/app/${g.appid}" target="_blank" rel="noopener">Page Steam ↗</a>
       </div>
       ${a?.total ? `<div class="bar ${st.kind === 'platinum' ? 'is-plat' : ''}"><i style="width:${a.percent}%"></i></div>` : ''}
+      ${gameNotices(g, st)}
     </div>
     <div class="modal-body" id="modalBody">
       ${g.hasStats ? `<div class="loading" style="min-height:160px"><div class="spinner"></div></div>` : `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`}
@@ -1316,7 +1446,7 @@ async function openGame(appid) {
   try {
     const data = await getJSON(`/api/game/${state.steamid}/${appid}`);
     if (!modal.open) return;
-    renderAchievements(data.achievements);
+    renderAchievements(data.achievements, st.kind === 'platinum');
   } catch (err) {
     $('#modalBody').innerHTML = `<p class="empty">${esc(err.message)}</p>`;
   }
@@ -1329,7 +1459,30 @@ function rarityTag(r) {
   return `<span class="rarity ${cls}" title="Pourcentage de joueurs l’ayant débloqué">${label} % des joueurs</span>`;
 }
 
-function renderAchievements(list) {
+/** Encadrés de la fiche : difficulté de ce qu'il reste et succès ajoutés par une mise à jour. */
+function addedLabel({ from, to }) {
+  const n = to - from;
+  return `+${n} succès ajouté${n > 1 ? 's' : ''}`;
+}
+
+function gameNotices(g, st) {
+  const out = [];
+  const added = state.added.get(g.appid);
+  if (added) {
+    out.push(`<div class="notice-added">${icon('sparkle')}<span><strong>${addedLabel(added)}</strong> par une mise à jour (repéré le ${fmtDate(added.at)})</span></div>`);
+  }
+  const d = state.diff.get(g.appid);
+  const tier = st.kind !== 'platinum' ? difficultyTier(d?.hardest) : null;
+  if (tier) {
+    out.push(`<div class="notice-todo diff-box-${tier.id}">
+      <span class="difficulty diff-${tier.id}">${tier.label}</span>
+      <span>Il te reste <strong>${d.remaining} succès</strong> pour le platine · le plus dur est débloqué par ${fmtRarity(d.hardest)} des joueurs</span>
+    </div>`);
+  }
+  return out.join('');
+}
+
+function renderAchievements(list, isPlatinum) {
   const body = $('#modalBody');
   if (!list.length) {
     body.innerHTML = `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`;
@@ -1342,7 +1495,7 @@ function renderAchievements(list) {
   const row = (x) => {
     const secret = x.hidden && !x.achieved;
     return `
-      <div class="ach ${x.achieved ? '' : 'locked'}">
+      <div class="ach ${x.achieved ? '' : 'locked todo'}">
         ${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy">` : `<span class="ach-icon">${icon('lock')}</span>`}
         <div style="min-width:0">
           <div class="ach-name">${esc(x.name)}</div>
@@ -1355,10 +1508,13 @@ function renderAchievements(list) {
       </div>`;
   };
 
-  body.innerHTML = `
-    ${rarest ? `<div class="ach-group">Ton succès le plus rare</div>${row(rarest)}` : ''}
-    ${unlocked.length ? `<div class="ach-group">Débloqués · ${unlocked.length}</div>${unlocked.map(row).join('')}` : ''}
-    ${locked.length ? `<div class="ach-group">Restants · ${locked.length} — du plus accessible au plus rare</div>${locked.map(row).join('')}` : ''}`;
+  // Ce qu'il reste à faire passe en premier : c'est ce qu'on cherche pour décrocher le platine.
+  const todo = locked.length
+    ? `<div class="ach-group ach-group-todo">Il te reste ${locked.length} succès · du plus accessible au plus rare</div>${locked.map(row).join('')}`
+    : '';
+  const done = unlocked.length ? `<div class="ach-group">Débloqués · ${unlocked.length}</div>${unlocked.map(row).join('')}` : '';
+  const best = isPlatinum && rarest ? `<div class="ach-group">Ton succès le plus rare</div>${row(rarest)}` : '';
+  body.innerHTML = best + todo + done;
 }
 
 // ---------------------------------------------------------------- infobulles
