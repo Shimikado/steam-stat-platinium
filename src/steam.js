@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { TtlCache } from './cache.js';
+import { recordTotals } from './db.js';
 
 const API = 'https://api.steampowered.com';
 const CACHE_DIR = path.resolve('.cache');
@@ -14,9 +15,9 @@ export class SteamError extends Error {
 
 const caches = {
   profile: new TtlCache({ ttlMs: 10 * 60 * 1000 }),
-  achievements: new TtlCache({ ttlMs: 6 * HOUR, file: path.join(CACHE_DIR, 'achievements.json') }),
-  schema: new TtlCache({ ttlMs: 7 * 24 * HOUR, file: path.join(CACHE_DIR, 'schema.json') }),
-  global: new TtlCache({ ttlMs: 24 * HOUR, file: path.join(CACHE_DIR, 'global.json') }),
+  achievements: new TtlCache({ ttlMs: 6 * HOUR, file: path.join(CACHE_DIR, 'achievements.json'), ns: 'ach' }),
+  schema: new TtlCache({ ttlMs: 7 * 24 * HOUR, file: path.join(CACHE_DIR, 'schema.json'), ns: 'schema' }),
+  global: new TtlCache({ ttlMs: 24 * HOUR, file: path.join(CACHE_DIR, 'global.json'), ns: 'global' }),
 };
 
 async function call(endpoint, params = {}, { allowError = false } = {}) {
@@ -85,7 +86,7 @@ export async function resolveSteamId(input) {
 
 export async function getProfile(steamid, { refresh = false } = {}) {
   if (!refresh) {
-    const cached = caches.profile.get(steamid);
+    const cached = await caches.profile.get(steamid);
     if (cached) return cached;
   }
 
@@ -139,7 +140,7 @@ const friendCache = new TtlCache({ ttlMs: 5 * 60 * 1000 });
 
 /** Amis du joueur avec leur statut. { private: true } si la liste d'amis n'est pas publique. */
 export async function getFriends(steamid) {
-  const cached = friendCache.get(steamid);
+  const cached = await friendCache.get(steamid);
   if (cached) return cached;
 
   let list;
@@ -185,7 +186,7 @@ export async function getFriends(steamid) {
 async function getPlayerAchievementList(steamid, appid, { refresh = false } = {}) {
   const key = `${steamid}:${appid}`;
   if (!refresh) {
-    const cached = caches.achievements.get(key);
+    const cached = await caches.achievements.get(key);
     if (cached !== undefined) return cached;
   }
 
@@ -231,12 +232,14 @@ export async function getAchievementSummaries(steamid, appids, { refresh = false
     }
   });
   if (privateError && results.every((r) => r.error)) throw privateError;
+  // Le total de succès d'un jeu est le même pour tous : chaque analyse alimente la détection des ajouts.
+  recordTotals(results.filter((r) => r.total > 0).map((r) => [r.appid, r.total]));
   return results;
 }
 
 async function getSchema(appid) {
   const key = `${appid}:french`;
-  const cached = caches.schema.get(key);
+  const cached = await caches.schema.get(key);
   if (cached !== undefined) return cached;
 
   const { body } = await call('/ISteamUserStats/GetSchemaForGame/v2/', { appid, l: 'french' }, { allowError: true });
@@ -252,7 +255,7 @@ async function getSchema(appid) {
 }
 
 async function getGlobalPercentages(appid) {
-  const cached = caches.global.get(appid);
+  const cached = await caches.global.get(appid);
   if (cached) return cached;
 
   const { body } = await call('/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/', { gameid: appid }, { allowError: true });

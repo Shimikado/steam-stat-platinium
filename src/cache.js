@@ -1,20 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { hasDb, kvGet, kvSet } from './db.js';
 
 /**
- * Petit cache clé/valeur avec expiration, optionnellement persisté sur disque
- * pour ne pas re-scanner toute une bibliothèque à chaque redémarrage.
+ * Cache clé/valeur avec expiration, sur trois niveaux :
+ * mémoire → base Postgres (si `ns` et DATABASE_URL) → fichier disque (si `file`).
+ * La base fait survivre le cache aux redémarrages de l'hébergeur, dont le disque est effacé.
  */
 export class TtlCache {
-  constructor({ ttlMs, file = null }) {
+  constructor({ ttlMs, file = null, ns = null }) {
     this.ttlMs = ttlMs;
     this.file = file;
+    this.ns = ns;
     this.map = new Map();
     this.saveTimer = null;
     this.#load();
   }
 
-  get(key) {
+  #memory(key) {
     const entry = this.map.get(key);
     if (!entry) return undefined;
     if (Date.now() - entry.t > this.ttlMs) {
@@ -24,8 +27,22 @@ export class TtlCache {
     return entry.v;
   }
 
+  /** Valeur en cache ou undefined (null est une valeur valide, ex. « jeu sans succès »). */
+  async get(key) {
+    const local = this.#memory(key);
+    if (local !== undefined || !this.ns || !hasDb()) return local;
+    try {
+      const stored = await kvGet(this.ns, String(key), this.ttlMs);
+      if (stored !== undefined) this.map.set(key, { t: Date.now(), v: stored });
+      return stored;
+    } catch {
+      return undefined; // base injoignable : on refait simplement l'appel à Steam
+    }
+  }
+
   set(key, value) {
     this.map.set(key, { t: Date.now(), v: value });
+    if (this.ns) kvSet(this.ns, String(key), value);
     this.#scheduleSave();
   }
 

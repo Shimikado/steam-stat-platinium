@@ -48,3 +48,14 @@ export function toggleMark(steamid, kind, appid) {
   }
   return marks;
 }
+
+/** Remplace les marquages locaux d'un profil (copie de ceux synchronisés avec le serveur). */
+export function saveMarks(steamid, { dlc, goal }) {
+  const all = readAll();
+  all[steamid] = { dlc: [...dlc], goal: [...goal] };
+  try {
+    localStorage.setItem(KEY, JSON.stringify(all));
+  } catch {
+    // facultatif
+  }
+}

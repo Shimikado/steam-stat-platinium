@@ -80,3 +80,16 @@ export function fmtDuration(sec) {
 }
 
 export const fmtRarity = (p) => `${p < 10 ? p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(p)} %`;
+
+/** Envoi JSON (PUT/POST) vers l'API ; renvoie la réponse décodée, ou null pour un 204. */
+export async function sendJSON(url, method, body) {
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || `Erreur HTTP ${res.status}`), { status: res.status });
+  return data;
+}

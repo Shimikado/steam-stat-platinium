@@ -11,6 +11,7 @@ import {
   getProfile,
   resolveSteamId,
 } from './src/steam.js';
+import { getAdditions, getMarks, getSnapshot, importMarks, initDb, saveSnapshot, setMark } from './src/db.js';
 
 try {
   process.loadEnvFile();
@@ -30,6 +31,10 @@ const DEMO = process.env.DEMO === '1' || process.argv.includes('--demo');
 if (!process.env.STEAM_API_KEY && !DEMO) {
   console.warn('⚠  STEAM_API_KEY absente : copie .env.example en .env et renseigne ta clé.');
 }
+
+// Base Postgres facultative (cache persistant, succès ajoutés, marquages synchronisés).
+const DB = DEMO ? false : await initDb();
+console.log(DB ? 'Base de données : connectée.' : 'Base de données : aucune (fonctionnement local).');
 
 if (!process.env.SESSION_SECRET && HTTPS) {
   console.warn('⚠  SESSION_SECRET absente : les connexions seront perdues à chaque redémarrage.');
@@ -131,7 +136,63 @@ function steamidParam(req) {
 }
 
 api.get('/me', (req, res) => {
-  res.json({ steamid: req.session?.steamid ?? null });
+  res.json({ steamid: req.session?.steamid ?? null, sync: Boolean(DB) });
+});
+
+// ---------------------------------------------------------------- données liées à la base
+
+function requireDb() {
+  if (!DB) throw new SteamError('Base de données non configurée', 503);
+}
+
+/** Les marquages et l'instantané ne concernent que le compte connecté. */
+function selfId(req) {
+  requireDb();
+  const id = req.session?.steamid;
+  if (!id) throw new SteamError('Connexion Steam requise', 401);
+  return id;
+}
+
+const appidList = (raw, max) =>
+  String(raw ?? '')
+    .split(',')
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, max);
+
+api.get('/additions', async (req, res) => {
+  requireDb();
+  res.json(await getAdditions(appidList(req.query.appids, 3000)));
+});
+
+api.get('/marks', async (req, res) => {
+  res.json(await getMarks(selfId(req)));
+});
+
+api.put('/marks', express.json({ limit: '4kb' }), async (req, res) => {
+  const id = selfId(req);
+  const { appid, kind, on } = req.body ?? {};
+  if (!Number.isInteger(appid) || appid <= 0 || !['goal', 'dlc'].includes(kind)) throw new SteamError('Marquage invalide', 400);
+  res.json(await setMark(id, appid, kind, Boolean(on)));
+});
+
+api.post('/marks/import', express.json({ limit: '64kb' }), async (req, res) => {
+  const id = selfId(req);
+  const clean = (list) => (Array.isArray(list) ? list.filter((n) => Number.isInteger(n) && n > 0) : []);
+  res.json(await importMarks(id, { goal: clean(req.body?.goal), dlc: clean(req.body?.dlc) }));
+});
+
+api.get('/snapshot', async (req, res) => {
+  res.json({ snapshot: await getSnapshot(selfId(req)) });
+});
+
+api.put('/snapshot', express.json({ limit: '64kb' }), async (req, res) => {
+  const id = selfId(req);
+  const plats = Array.isArray(req.body?.plats) ? req.body.plats.filter(Number.isInteger).slice(0, 5000) : null;
+  const rank = typeof req.body?.rank === 'string' ? req.body.rank.slice(0, 20) : null;
+  if (!plats || !rank) throw new SteamError('Instantané invalide', 400);
+  await saveSnapshot(id, { plats, rank });
+  res.status(204).end();
 });
 
 api.get('/resolve', async (req, res) => {

@@ -20,13 +20,14 @@ import {
   DIFFICULTY_TIERS,
   difficultyTier,
   fmtDuration,
+  sendJSON,
 } from './utils.js';
 import { celebrate } from './celebrate.js';
 import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
-import { loadMarks, toggleMark } from './marks.js';
+import { loadMarks, saveMarks, toggleMark } from './marks.js';
 import { applyAmbient, restoreAmbient, updateAmbient } from './ambient.js';
 
 const app = $('#app');
@@ -55,6 +56,7 @@ document.addEventListener(
 
 const state = {
   me: null,
+  sync: false, // base de données disponible côté serveur
   steamid: null,
   profile: null,
   ach: new Map(), // appid -> { total, unlocked, percent, times }
@@ -155,7 +157,9 @@ async function boot() {
   }
 
   try {
-    state.me = (await getJSON('/api/me')).steamid;
+    const me = await getJSON('/api/me');
+    state.me = me.steamid;
+    state.sync = Boolean(me.sync);
   } catch {
     state.me = null;
   }
@@ -336,6 +340,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   const saved = restoreAmbient(steamid);
   setAmbient(saved?.appid ?? [...profile.games].sort((a, b) => b.playtime - a.playtime)[0]?.appid);
   loadFriends(token);
+  if (ownSynced()) syncMarks(token);
   scanAchievements(token, refresh);
 }
 
@@ -365,7 +370,8 @@ async function scanAchievements(token, refresh) {
   if (token !== state.token) return;
   state.scan.running = false;
   update();
-  detectAddedAchievements();
+  await detectAddedAchievements();
+  if (token !== state.token) return;
   update();
   setAmbient(compute().platinum[0]?.g.appid);
   await loadDifficulty(token);
@@ -917,11 +923,50 @@ async function loadNext(token) {
   update();
 }
 
+// ---------------------------------------------------------------- synchronisation (base de données)
+
+/** Profil du compte connecté, avec la base disponible : marquages et instantané vivent côté serveur. */
+const ownSynced = () => state.sync && state.me && state.steamid === state.me;
+
+async function syncMarks(token) {
+  try {
+    let marks = await getJSON('/api/marks');
+    // Première synchronisation : on envoie les marquages déjà faits dans ce navigateur.
+    if (!marks.goal.length && !marks.dlc.length && (state.goals.size || state.dlcBlocked.size)) {
+      marks = await sendJSON('/api/marks/import', 'POST', { goal: [...state.goals], dlc: [...state.dlcBlocked] });
+    }
+    if (token !== state.token) return;
+    applyMarks(marks);
+  } catch {
+    // base injoignable : on garde la copie locale
+  }
+}
+
+function applyMarks(marks) {
+  state.goals = new Set(marks.goal);
+  state.dlcBlocked = new Set(marks.dlc);
+  saveMarks(state.steamid, marks);
+  update();
+}
+
 // ---------------------------------------------------------------- succès ajoutés par des mises à jour
 
-function detectAddedAchievements() {
+async function detectAddedAchievements() {
   const entries = [...state.ach.values()].filter((a) => a.total > 0).map((a) => [a.appid, a.total]);
-  state.added = trackNewAchievements(entries);
+  // Suivi local (ce navigateur), complété par le suivi partagé du serveur quand il existe.
+  const added = trackNewAchievements(entries);
+  if (state.sync) {
+    const ids = entries.map(([appid]) => appid);
+    try {
+      for (let i = 0; i < ids.length; i += 400) {
+        const res = await getJSON(`/api/additions?appids=${ids.slice(i, i + 400).join(',')}`);
+        for (const [appid, info] of Object.entries(res)) added.set(Number(appid), info);
+      }
+    } catch {
+      // on garde le suivi local
+    }
+  }
+  state.added = added;
 }
 
 /** Jeux de ce profil qui ont gagné des succès récemment, les platines « perdus » en premier. */
@@ -967,7 +1012,7 @@ function renderAdded() {
 const storeKey = (id) => `steam-stats:v1:${id}`;
 
 /** Compare avec la visite précédente (sur ce navigateur) et fête les nouveaux platines et rangs. */
-function checkProgress() {
+async function checkProgress() {
   if (!state.me || state.steamid !== state.me) return;
   const s = compute();
   const rank = rankOf(s.platinum.length);
@@ -978,7 +1023,16 @@ function checkProgress() {
     prev = JSON.parse(localStorage.getItem(storeKey(state.steamid)));
     localStorage.setItem(storeKey(state.steamid), JSON.stringify(snapshot));
   } catch {
-    return; // stockage indisponible (navigation privée…) : pas de comparaison possible
+    // stockage local indisponible (navigation privée…)
+  }
+  if (ownSynced()) {
+    try {
+      const { snapshot: remote } = await getJSON('/api/snapshot');
+      prev = remote ?? prev; // la version du serveur fait foi : elle suit le compte d'un appareil à l'autre
+      await sendJSON('/api/snapshot', 'PUT', snapshot);
+    } catch {
+      // on garde la comparaison locale
+    }
   }
   if (!prev) return; // première visite : on mémorise sans célébrer
 
@@ -1573,10 +1627,17 @@ modal.addEventListener('click', (e) => {
   if (toggle) {
     const appid = Number(toggle.dataset.appid);
     const g = state.profile.games.find((x) => x.appid === appid);
-    ({ dlc: state.dlcBlocked, goal: state.goals } = toggleMark(state.steamid, toggle.dataset.mark, appid));
+    const kind = toggle.dataset.mark;
+    const on = !(kind === 'goal' ? state.goals : state.dlcBlocked).has(appid);
+    ({ dlc: state.dlcBlocked, goal: state.goals } = toggleMark(state.steamid, kind, appid));
     $('#gameNotices').innerHTML = gameNotices(g, statusOf(g));
     update();
     loadNext(state.token);
+    if (ownSynced()) {
+      sendJSON('/api/marks', 'PUT', { appid, kind, on })
+        .then(applyMarks)
+        .catch(() => showBanner('Marquage gardé sur cet appareil : la synchronisation a échoué.'));
+    }
   }
 });
 

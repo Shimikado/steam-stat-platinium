@@ -13,5 +13,7 @@ services:
         value: 22
       - key: STEAM_API_KEY
         sync: false # à saisir dans le tableau de bord Render, jamais dans le dépôt
+      - key: DATABASE_URL
+        sync: false # URL Postgres (Neon), facultative
       - key: SESSION_SECRET
         generateValue: true

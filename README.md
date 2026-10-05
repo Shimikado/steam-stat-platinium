@@ -45,10 +45,19 @@ npm start              # http://localhost:3000
 - Les sessions sont stockées dans un cookie signé (`cookie-session`) : rien n'est gardé côté serveur, donc elles survivent aux redémarrages.
 - L'API est limitée à 400 requêtes par tranche de 5 min et par IP, pour protéger le quota de la clé Steam.
 
+## Base de données (facultative)
+
+Avec `DATABASE_URL` (Postgres, par exemple l'offre gratuite de [Neon](https://neon.com)) :
+- le cache des succès, des pourcentages mondiaux et des schémas survit aux redémarrages de Render, donc les chargements sont quasi instantanés après une mise en veille ;
+- les succès ajoutés par une mise à jour sont détectés côté serveur, partagés entre tous les visiteurs ;
+- objectifs, marquages DLC et historique des platines sont liés au compte Steam connecté et synchronisés entre appareils.
+
+Les tables sont créées au démarrage. Sans base, l'app garde son fonctionnement local (navigateur et disque).
+
 ## Déploiement sur Render (gratuit)
 
 1. Sur https://dashboard.render.com : **New +** → **Blueprint**, puis choisis ce dépôt GitHub. Render lit `render.yaml`.
-2. Renseigne `STEAM_API_KEY` quand Render la demande. `SESSION_SECRET` est générée automatiquement.
+2. Renseigne `STEAM_API_KEY` (et `DATABASE_URL` si tu as une base) quand Render les demande. `SESSION_SECRET` est générée automatiquement.
 3. Une fois le service en ligne, l'URL publique (`https://<nom>.onrender.com`) est détectée automatiquement via `RENDER_EXTERNAL_URL`. Pour un domaine personnalisé, définis `BASE_URL`.
 
 Sur l'offre gratuite, le service se met en veille après 15 min sans visite et met environ 1 min à se réveiller. Le cache disque est vidé à chaque redémarrage.
