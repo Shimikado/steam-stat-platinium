@@ -26,7 +26,7 @@ import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
-import { loadDlcBlocked, toggleDlcBlocked } from './dlc.js';
+import { loadMarks, toggleMark } from './marks.js';
 
 const app = $('#app');
 const SCAN_BATCH = 25;
@@ -67,6 +67,8 @@ const state = {
   scan: { done: 0, total: 0, running: false, error: null },
   lib: { filter: 'all', sort: 'playtime', search: '', limit: LIB_PAGE },
   dlcBlocked: new Set(), // jeux dont le platine est bloqué par un DLC (marquage manuel)
+  goals: new Set(), // objectifs de platine (marquage manuel)
+  tierOpen: new Set(), // rangs de la tier list dépliés
   hallOpen: false, // salle des trophées affichée (#/u/<id>/trophees)
   token: 0,
 };
@@ -275,7 +277,8 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
-  state.dlcBlocked = loadDlcBlocked(steamid);
+  ({ dlc: state.dlcBlocked, goal: state.goals } = loadMarks(steamid));
+  state.tierOpen = new Set();
   state.friends = [];
   state.next = null;
   state.newPlats = new Set();
@@ -286,7 +289,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   lastPlatKey = '';
   lastTierKey = '';
   lastHallKey = '';
-  lastDlcKey = '';
+  lastGoalKey = '';
   lastNext = undefined;
   window.scrollTo({ top: 0 });
   app.innerHTML = `<div class="loading"><div class="spinner"></div>Chargement de la bibliothèque…</div>`;
@@ -411,6 +414,11 @@ function renderDashboard() {
       <div id="plat"></div>
     </section>
 
+    <section class="section goals-section" id="goalsSection" hidden>
+      <div class="section-head"><h2>${icon('star')} Mes objectifs de platine<span class="count" id="goalCount"></span></h2><p>Les platines que tu as décidé d’aller chercher</p></div>
+      <div id="goals"></div>
+    </section>
+
     <section class="section" id="addedSection" hidden>
       <div class="section-head"><h2>Nouveaux succès ajoutés</h2><p>Des mises à jour ont ajouté des succès à ces jeux</p></div>
       <div id="added"></div>
@@ -424,11 +432,6 @@ function renderDashboard() {
     <section class="section">
       <div class="section-head"><h2>Tier list des platines à faire</h2><p>Classés selon le succès restant le plus rare · survole un jeu pour le détail</p></div>
       <div id="tiers"></div>
-    </section>
-
-    <section class="section" id="dlcSection" hidden>
-      <div class="section-head"><h2>Bloqués par un DLC<span class="count" id="dlcCount"></span></h2><p>Marqués à la main · exclus de la tier list et du prochain platine</p></div>
-      <div id="dlc"></div>
     </section>
 
     <section class="section">
@@ -482,6 +485,14 @@ function renderDashboard() {
     if (el) openGame(Number(el.dataset.appid));
   };
   bindHolo($('#plat'));
+  $('#tiers').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tier-toggle]');
+    if (!btn) return;
+    const id = btn.dataset.tierToggle;
+    if (state.tierOpen.has(id)) state.tierOpen.delete(id);
+    else state.tierOpen.add(id);
+    renderTiers(compute());
+  });
 
   update();
 }
@@ -497,7 +508,7 @@ function update() {
   renderAdded();
   renderNext();
   renderTiers(s);
-  renderDlc(s);
+  renderGoals(s);
   renderNearly(s);
   renderCharts(s);
   renderFacts(s);
@@ -718,7 +729,7 @@ let lastTierKey = '';
 function renderTiers(s) {
   const el = $('#tiers');
   const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null && !state.dlcBlocked.has(x.g.appid));
-  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${state.dlcBlocked.size}`;
+  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${[...state.dlcBlocked]}|${[...state.goals]}|${[...state.tierOpen]}`;
   if (key === lastTierKey) return;
   lastTierKey = key;
 
@@ -737,29 +748,43 @@ function renderTiers(s) {
   }));
 
   el.innerHTML = `<div class="tiers">${rows
-    .map(
-      ({ tier, items }) => `
+    .map(({ tier, items }) => {
+      const open = state.tierOpen.has(tier.id);
+      const shown = open ? items : items.slice(0, TIER_PREVIEW);
+      const hidden = items.length - shown.length;
+      return `
       <div class="tier-row tier-${tier.id}">
         <div class="tier-label" title="${esc(tier.hint)}"><strong>${tier.label}</strong><span>${items.length} jeu${items.length > 1 ? 'x' : ''}</span></div>
-        <div class="tier-items">${
-          items.length
-            ? items
-                .map(({ g, a }) => {
-                  const d = state.diff.get(g.appid);
-                  const tip = `${g.name}\nPlus que ${d.remaining} succès · ${Math.round(a.percent)} % fait\nSuccès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs`;
-                  return `
-              <button class="tier-item" data-appid="${g.appid}" type="button" data-tip="${esc(tip)}">
-                <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</span>
-                <span class="tier-left">${d.remaining} restant${d.remaining > 1 ? 's' : ''}</span>
-                <span class="bar"><i style="width:${a.percent}%"></i></span>
-              </button>`;
-                })
-                .join('')
-            : '<span class="tier-empty">Aucun jeu</span>'
-        }</div>
-      </div>`,
-    )
+        <div class="tier-body">
+          ${
+            items.length
+              ? `<div class="tier-items">${shown.map(tierItem).join('')}</div>`
+              : '<span class="tier-empty">Aucun jeu</span>'
+          }
+          ${
+            items.length > TIER_PREVIEW
+              ? `<button class="tier-more" type="button" data-tier-toggle="${tier.id}" aria-expanded="${open}">${open ? 'Replier' : `Voir les ${hidden} autres`}</button>`
+              : ''
+          }
+        </div>
+      </div>`;
+    })
     .join('')}</div>`;
+}
+
+const TIER_PREVIEW = 6;
+
+function tierItem({ g, a }) {
+  const d = state.diff.get(g.appid);
+  const tip = `${g.name}\nPlus que ${d.remaining} succès · ${Math.round(a.percent)} % fait\nSuccès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs`;
+  return `
+    <button class="tier-item ${state.goals.has(g.appid) ? 'is-goal' : ''}" data-appid="${g.appid}" type="button" data-tip="${esc(tip)}">
+      <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</span>
+      ${state.goals.has(g.appid) ? `<span class="goal-star" title="Objectif">${icon('star')}</span>` : ''}
+      <span class="tier-name">${esc(g.name)}</span>
+      <span class="tier-left">${d.remaining} restant${d.remaining > 1 ? 's' : ''} · ${Math.round(a.percent)} %</span>
+      <span class="bar"><i style="width:${a.percent}%"></i></span>
+    </button>`;
 }
 
 // ---------------------------------------------------------------- salle des trophées
@@ -806,30 +831,47 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.hallOpen && !document.querySelector('dialog[open]')) location.hash = `#/u/${state.steamid}`;
 });
 
-// ---------------------------------------------------------------- platines bloqués par un DLC
+// ---------------------------------------------------------------- objectifs de platine
 
-let lastDlcKey = '';
-function renderDlc(s) {
-  const list = [...s.progress, ...state.profile.games.filter((g) => g.status.kind === 'notstarted').map((g) => ({ g, a: g.status.a }))]
-    .filter((x) => state.dlcBlocked.has(x.g.appid))
+let lastGoalKey = '';
+function renderGoals(s) {
+  const section = $('#goalsSection');
+  const list = state.profile.games
+    .filter((g) => state.goals.has(g.appid) && g.status.a?.total && g.status.kind !== 'platinum')
+    .map((g) => ({ g, a: g.status.a, d: state.diff.get(g.appid) }))
     .sort((x, y) => y.a.percent - x.a.percent);
-  const key = list.map((x) => x.g.appid).join(',');
-  if (key === lastDlcKey) return;
-  lastDlcKey = key;
+  const mine = state.steamid === state.me;
+  const key = `${state.scan.running}|${list.map((x) => `${x.g.appid}:${x.d?.hardest}`).join(',')}|${mine}`;
+  if (key === lastGoalKey) return;
+  lastGoalKey = key;
 
-  $('#dlcSection').hidden = !list.length;
-  $('#dlcCount').textContent = list.length ? ` ${list.length}` : '';
-  $('#dlc').innerHTML = `<div class="near-list">${list
-    .map(({ g, a }) => {
+  // Sur un autre profil, la section n'apparaît que s'il y a des objectifs.
+  section.hidden = state.scan.running || (!list.length && !mine);
+  $('#goalCount').textContent = list.length ? ` ${list.length}` : '';
+  if (!list.length) {
+    $('#goals').innerHTML = `<div class="empty goals-empty">${icon('star')} Ouvre la fiche d’un jeu en cours et clique sur <strong>« Objectif platine »</strong> pour le suivre ici.</div>`;
+    return;
+  }
+  $('#goals').innerHTML = `<div class="goal-list">${list
+    .map(({ g, a, d }) => {
       const left = a.total - a.unlocked;
+      const tier = difficultyTier(d?.hardest);
       return `
-      <button class="near dlc-card" data-appid="${g.appid}" type="button">
-        <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</div>
-        <div style="min-width:0">
-          <div class="near-name">${esc(g.name)}</div>
-          <div class="near-meta"><span><strong>${a.unlocked}</strong> / ${a.total} · ${left} restant${left > 1 ? 's' : ''}</span><strong>${fmtPct(a.percent)}</strong></div>
-          <div class="bar"><i style="width:${a.percent}%"></i></div>
-        </div>
+      <button class="goal-card" data-appid="${g.appid}" type="button">
+        <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], g.name)}</span>
+        <span class="goal-star" aria-hidden="true">${icon('star')}</span>
+        <span class="goal-body">
+          <span class="goal-title">${esc(g.name)}</span>
+          <span class="goal-progress">
+            <span class="goal-pct">${fmtPct(a.percent)}</span>
+            <span class="goal-meta">
+              <span>Plus que <strong>${left}</strong> succès sur ${a.total}</span>
+              ${tier ? `<span class="difficulty diff-${tier.id}">${tier.label}</span>` : ''}
+            </span>
+          </span>
+          <span class="bar goal-bar"><i style="width:${a.percent}%"></i></span>
+          ${d?.hardest != null ? `<span class="goal-hint">Succès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs</span>` : ''}
+        </span>
       </button>`;
     })
     .join('')}</div>`;
@@ -933,7 +975,7 @@ function checkProgress() {
     state.newPlats = new Set(newPlats.map((x) => x.g.appid));
     update();
   }
-  celebrate({ plats: newPlats.map((x) => ({ appid: x.g.appid, name: x.g.name })), rank: rankUp });
+  celebrate({ plats: newPlats.map((x) => ({ appid: x.g.appid, name: x.g.name, goal: state.goals.has(x.g.appid) })), rank: rankUp });
 }
 
 
@@ -1139,7 +1181,7 @@ function bindHolo(root) {
 }
 
 function renderNearly(s) {
-  const list = s.progress.filter((x) => x.a.percent >= 75).slice(0, 12);
+  const list = s.progress.filter((x) => x.a.percent >= 75 && !state.dlcBlocked.has(x.g.appid)).slice(0, 12);
   const el = $('#nearly');
   if (!list.length) {
     el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Aucun jeu à plus de 75 % pour l’instant.'}</div>`;
@@ -1405,10 +1447,12 @@ function renderFacts(s) {
 const FILTERS = [
   { id: 'all', label: 'Tous', test: () => true },
   { id: 'platinum', label: 'Platinés', test: (g) => g.status.kind === 'platinum' },
-  { id: 'progress', label: 'En cours', test: (g) => g.status.kind === 'progress' },
-  { id: 'notstarted', label: 'Succès à 0 %', test: (g) => g.status.kind === 'notstarted' },
+  { id: 'goals', label: 'Objectifs', test: (g) => state.goals.has(g.appid) && g.status.kind !== 'platinum', hideWhen: () => !state.goals.size },
+  { id: 'progress', label: 'En cours', test: (g) => g.status.kind === 'progress' && !state.dlcBlocked.has(g.appid) },
+  { id: 'notstarted', label: 'Succès à 0 %', test: (g) => g.status.kind === 'notstarted' && !state.dlcBlocked.has(g.appid) },
   { id: 'none', label: 'Sans succès', test: (g) => g.status.kind === 'none' },
   { id: 'never', label: 'Jamais lancés', test: (g) => g.playtime === 0, hideWhen: () => state.profile.playtimeHidden },
+  { id: 'dlc', label: 'Bloqués (DLC)', test: (g) => state.dlcBlocked.has(g.appid) && g.status.kind !== 'platinum', hideWhen: () => !state.dlcBlocked.size },
 ];
 
 const SORTS = {
@@ -1483,6 +1527,7 @@ function gameCard(g) {
   const added = state.added.get(g.appid);
   const foot = [
     blocked ? `<span class="dlc-tag">${icon('lock')} DLC requis</span>` : '',
+    st.kind !== 'platinum' && state.goals.has(g.appid) ? `<span class="goal-tag">${icon('star')} Objectif</span>` : '',
     tier ? `<span class="difficulty diff-${tier.id}">${tier.label}</span>` : '',
     added ? `<span class="added-tag">${addedLabel(added)}</span>` : '',
   ].join('');
@@ -1508,11 +1553,11 @@ function gameCard(g) {
 const modal = $('#gameModal');
 modal.addEventListener('click', (e) => {
   if (e.target === modal || e.target.closest('.modal-close')) modal.close();
-  const toggle = e.target.closest('[data-dlc-toggle]');
+  const toggle = e.target.closest('[data-mark]');
   if (toggle) {
-    const appid = Number(toggle.dataset.dlcToggle);
+    const appid = Number(toggle.dataset.appid);
     const g = state.profile.games.find((x) => x.appid === appid);
-    state.dlcBlocked = toggleDlcBlocked(state.steamid, appid);
+    ({ dlc: state.dlcBlocked, goal: state.goals } = toggleMark(state.steamid, toggle.dataset.mark, appid));
     $('#gameNotices').innerHTML = gameNotices(g, statusOf(g));
     update();
     loadNext(state.token);
@@ -1610,11 +1655,16 @@ function gameNotices(g, st) {
     </div>`);
   }
   if (st.kind === 'progress' || st.kind === 'notstarted') {
-    out.push(
-      state.dlcBlocked.has(g.appid)
-        ? `<div class="notice-dlc is-on">${icon('lock')}<span><strong>Platine bloqué par un DLC</strong> · exclu de la tier list et du prochain platine</span><button class="btn btn-sm" type="button" data-dlc-toggle="${g.appid}">Retirer le marquage</button></div>`
-        : `<div class="notice-dlc"><span>Un DLC que tu n’as pas t’empêche de platiner ce jeu ?</span><button class="btn btn-sm" type="button" data-dlc-toggle="${g.appid}">${icon('lock')} Marquer comme bloqué par un DLC</button></div>`,
-    );
+    const goal = state.goals.has(g.appid);
+    const dlc = state.dlcBlocked.has(g.appid);
+    if (dlc) {
+      out.push(`<div class="notice-dlc is-on">${icon('lock')}<span><strong>Platine bloqué par un DLC</strong> · rangé dans l’onglet « Bloqués (DLC) » de la bibliothèque</span></div>`);
+    }
+    out.push(`
+      <div class="game-actions">
+        <button class="btn btn-sm mark-goal" type="button" data-mark="goal" data-appid="${g.appid}" aria-pressed="${goal}">${icon('star')} ${goal ? 'Objectif platine' : 'Ajouter aux objectifs'}</button>
+        <button class="btn btn-sm mark-dlc" type="button" data-mark="dlc" data-appid="${g.appid}" aria-pressed="${dlc}">${icon('lock')} ${dlc ? 'Bloqué par un DLC' : 'Bloqué par un DLC ?'}</button>
+      </div>`);
   }
   return out.join('');
 }

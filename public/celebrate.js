@@ -85,7 +85,7 @@ export function confetti({ count = 180, duration = 3800 } = {}) {
 }
 
 /**
- * plats : [{appid, name}] · rank : {name, tone} | null
+ * plats : [{appid, name, goal}] · rank : {name, tone} | null
  */
 export function celebrate({ plats = [], rank = null }) {
   if (!plats.length && !rank) return;
@@ -101,7 +101,7 @@ export function celebrate({ plats = [], rank = null }) {
   dialog.innerHTML = `
     <div class="celebration-glow" aria-hidden="true"></div>
     <div class="celebration-trophy">${icon('trophy')}</div>
-    <p class="celebration-eyebrow">Depuis ta dernière visite</p>
+    <p class="celebration-eyebrow">${plats.some((g) => g.goal) ? `${icon('star')} Objectif atteint !` : 'Depuis ta dernière visite'}</p>
     <h2 class="celebration-title">${esc(title)}</h2>
     ${
       plats.length
@@ -112,6 +112,7 @@ export function celebrate({ plats = [], rank = null }) {
             <div class="celebration-plat">
               <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_600x900.jpg', 'header.jpg'], g.name)}</span>
               <span class="celebration-plat-name">${esc(g.name)}</span>
+              ${g.goal ? `<span class="celebration-goal">${icon('star')} Objectif</span>` : ''}
             </div>`,
             )
             .join('')}</div>${plats.length > 4 ? `<p class="celebration-more">et ${plats.length - 4} autre${plats.length > 5 ? 's' : ''}…</p>` : ''}`

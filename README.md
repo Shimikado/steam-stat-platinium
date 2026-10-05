@@ -25,7 +25,8 @@ npm start              # http://localhost:3000
 - **Célébration des nouveautés** : sur ton propre profil, l'app compare avec ta visite précédente (mémorisée dans le navigateur). Les nouveaux platines et les changements de rang déclenchent des confettis et une étiquette « Nouveau » dans la vitrine.
 - **Difficulté des platines à faire** : chaque jeu commencé est classé (Facile, Faisable, Coriace, Légendaire) selon le succès restant le plus rare. On obtient une tier list, un tri « Platine le plus accessible » dans la bibliothèque et les 3 « prochains platines » les plus à portée.
 - **Succès ajoutés par une mise à jour** : Steam ne donne pas la date d'ajout des succès, donc l'app mémorise le nombre total de succès de chaque jeu dans le navigateur et repère les hausses d'une visite à l'autre. Les platines « perdus » sont signalés « à reconquérir ».
-- **Platines bloqués par un DLC** : marquage manuel depuis la fiche d'un jeu (Steam ne dit pas quels DLC tu possèdes). Les jeux marqués sortent de la tier list et du prochain platine, et vont dans leur propre section.
+- **Objectifs de platine** : marquage ⭐ depuis la fiche d'un jeu. Les objectifs sont mis en avant en haut du profil, ont leur onglet dans la bibliothèque et déclenchent « Objectif atteint ! » une fois platinés.
+- **Platines bloqués par un DLC** : marquage manuel depuis la fiche d'un jeu (Steam ne dit pas quels DLC tu possèdes). Ces jeux sortent de la tier list, du prochain platine et des presque platinés, et sont rangés dans l'onglet « Bloqués (DLC) » de la bibliothèque.
 - **Fiche jeu** : les succès manquants passent en premier, du plus accessible au plus rare.
 - **Salle des trophées** (`#/u/<steamid>/trophees`) : une page plein écran avec une plaque par platine, regroupées par année (numéro, date, durée de la chasse, rareté)
 - **Numéro de platine** chronologique et **certificat de platine** dans la fiche des jeux platinés
