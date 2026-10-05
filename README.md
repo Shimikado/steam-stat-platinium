@@ -50,7 +50,8 @@ npm start              # http://localhost:3000
 Avec `DATABASE_URL` (Postgres, par exemple l'offre gratuite de [Neon](https://neon.com)) :
 - le cache des succès, des pourcentages mondiaux et des schémas survit aux redémarrages de Render, donc les chargements sont quasi instantanés après une mise en veille ;
 - les succès ajoutés par une mise à jour sont détectés côté serveur, partagés entre tous les visiteurs ;
-- objectifs, marquages DLC et historique des platines sont liés au compte Steam connecté et synchronisés entre appareils.
+- objectifs, marquages DLC et historique des platines sont liés au compte Steam connecté et synchronisés entre appareils ;
+- chaque profil ouvert dans l'app enregistre un résumé (platines, plus rare), calculé par le serveur depuis son cache. Le bloc Amis affiche le nombre de platines des amis déjà analysés et un **classement** entre eux.
 
 Les tables sont créées au démarrage. Sans base, l'app garde son fonctionnement local (navigateur et disque).
 

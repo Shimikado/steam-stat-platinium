@@ -65,6 +65,8 @@ const state = {
   diffScan: { done: 0, total: 0, running: false },
   added: new Map(), // appid -> { from, to, at } : succès ajoutés récemment par une mise à jour
   friends: [],
+  summaries: new Map(), // steamid -> résumé (platines…) des profils déjà analysés
+  friendView: 'all', // 'all' | 'ranking'
   next: null, // recommandations « prochain platine » (null = pas encore calculées)
   newPlats: new Set(), // platines obtenus depuis la dernière visite
   scan: { done: 0, total: 0, running: false, error: null },
@@ -295,6 +297,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   ({ dlc: state.dlcBlocked, goal: state.goals } = loadMarks(steamid));
   state.tierOpen = new Set();
   state.friends = [];
+  state.summaries = new Map();
   state.next = null;
   state.newPlats = new Set();
   state.lib.limit = LIB_PAGE;
@@ -375,6 +378,8 @@ async function scanAchievements(token, refresh) {
   update();
   setAmbient(compute().platinum[0]?.g.appid);
   await loadDifficulty(token);
+  if (token !== state.token) return;
+  publishSummary(token);
   if (token !== state.token) return;
   await loadNext(token);
   if (token !== state.token) return;
@@ -1101,30 +1106,130 @@ async function loadFriends(token) {
   el.innerHTML = `
     <div class="friends-head">
       <h2>${icon('users')} Amis <span class="count">${data.friends.length}</span>${online ? `<span class="online-count">${online} en ligne</span>` : ''}</h2>
-      ${data.friends.length > 12 ? `<input class="input friends-filter" id="friendsFilter" type="search" placeholder="Filtrer…" aria-label="Filtrer les amis">` : ''}
+      <div class="friends-tools">
+        ${state.sync ? '<div class="chips" id="friendViews" role="group" aria-label="Affichage"></div>' : ''}
+        ${data.friends.length > 12 ? '<input class="input friends-filter" id="friendsFilter" type="search" placeholder="Filtrer…" aria-label="Filtrer les amis">' : ''}
+      </div>
     </div>
-    <div class="friends-row" id="friendsRow"></div>`;
-  renderFriendList('');
-  $('#friendsFilter')?.addEventListener('input', (e) => renderFriendList(e.target.value));
+    <div id="friendsBody"></div>`;
+  $('#friendsFilter')?.addEventListener('input', renderFriends);
+  $('#friendViews')?.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-view]');
+    if (!chip) return;
+    state.friendView = chip.dataset.view;
+    renderFriends();
+  });
+  renderFriends();
+
+  // Nombre de platines des amis déjà analysés (et du profil affiché).
+  if (state.sync) {
+    try {
+      const ids = [state.steamid, ...data.friends.map((f) => f.steamid)];
+      for (let i = 0; i < ids.length; i += 300) {
+        const list = await getJSON(`/api/summaries?ids=${ids.slice(i, i + 300).join(',')}`);
+        for (const sum of list) state.summaries.set(sum.steamid, sum);
+      }
+      if (token === state.token) renderFriends();
+    } catch {
+      // pas de classement, la liste d'amis reste utilisable
+    }
+  }
+}
+
+/** Enregistre le résumé du profil affiché (calculé côté serveur) pour le classement entre amis. */
+async function publishSummary(token) {
+  if (!state.sync) return;
+  try {
+    const sum = await sendJSON(`/api/summary/${state.steamid}`, 'POST', {});
+    if (token !== state.token) return;
+    state.summaries.set(sum.steamid, sum);
+    if ($('#friendsBody')) renderFriends();
+  } catch {
+    // analyse incomplète ou base indisponible : le profil n'entre simplement pas au classement
+  }
+}
+
+function renderFriends() {
+  const known = state.friends.filter((f) => state.summaries.has(f.steamid)).length;
+  const views = $('#friendViews');
+  if (views) {
+    views.innerHTML = [
+      ['all', 'Tous'],
+      ['ranking', `${icon('trophy')} Classement <span class="n">${known}</span>`],
+    ]
+      .map(([id, label]) => `<button class="chip" type="button" data-view="${id}" aria-pressed="${state.friendView === id}">${label}</button>`)
+      .join('');
+  }
+  const filter = $('#friendsFilter');
+  if (filter) filter.hidden = state.friendView === 'ranking';
+  if (state.friendView === 'ranking') renderRanking();
+  else renderFriendList(filter?.value ?? '');
 }
 
 function renderFriendList(q) {
   const needle = q.trim().toLocaleLowerCase('fr');
   const list = state.friends.filter((f) => !needle || f.name.toLocaleLowerCase('fr').includes(needle));
-  $('#friendsRow').innerHTML = list.length
-    ? list
+  $('#friendsBody').innerHTML = list.length
+    ? `<div class="friends-row">${list
         .map((f) => {
           const status = f.game ? 'ingame' : f.online ? 'online' : 'offline';
-          const tip = [f.name, f.game ? `En jeu : ${f.game}` : f.online ? 'En ligne' : 'Hors ligne', f.isPublic ? '' : 'Profil privé'].filter(Boolean).join('\n');
+          const sum = state.summaries.get(f.steamid);
+          const tip = [
+            f.name,
+            f.game ? `En jeu : ${f.game}` : f.online ? 'En ligne' : 'Hors ligne',
+            sum ? `${sum.platinum} platine${sum.platinum > 1 ? 's' : ''}` : '',
+            f.isPublic ? '' : 'Profil privé',
+          ]
+            .filter(Boolean)
+            .join('\n');
           return `
           <a class="friend ${f.isPublic ? '' : 'is-private'}" href="#/u/${f.steamid}" data-tip="${esc(tip)}">
-            <span class="friend-avatar status-${status}"><img src="${esc(f.avatar)}" data-fallback="" alt="" loading="lazy"></span>
+            <span class="friend-avatar status-${status}">
+              <img src="${esc(f.avatar)}" data-fallback="" alt="" loading="lazy">
+              ${sum ? `<span class="friend-plat tone-${rankOf(sum.platinum).tone}">${icon('trophy')}${sum.platinum}</span>` : ''}
+            </span>
             <span class="friend-name">${esc(f.name)}</span>
             <span class="friend-game">${f.game ? esc(f.game) : f.isPublic ? '' : 'Privé'}</span>
           </a>`;
         })
-        .join('')
+        .join('')}</div>`
     : `<p class="friends-empty">Aucun ami ne correspond.</p>`;
+}
+
+/** Classement des amis déjà analysés, avec le profil affiché, par nombre de platines. */
+function renderRanking() {
+  const self = state.summaries.get(state.steamid);
+  const rows = [
+    ...state.friends.filter((f) => state.summaries.has(f.steamid)).map((f) => ({ ...state.summaries.get(f.steamid), avatar: f.avatar })),
+    ...(self ? [{ ...self, isSelf: true }] : []),
+  ].sort((a, b) => b.platinum - a.platinum || (a.rarestPct ?? 101) - (b.rarestPct ?? 101));
+
+  if (rows.length < 2) {
+    $('#friendsBody').innerHTML = `<p class="friends-empty">Ouvre le profil d’un ami pour l’ajouter au classement.</p>`;
+    return;
+  }
+
+  $('#friendsBody').innerHTML = `<ol class="ranking">${rows
+    .map((r, i) => {
+      const rank = rankOf(r.platinum);
+      const medal = i < 3 ? `medal-${i + 1}` : '';
+      return `
+      <li>
+        <a class="ranking-row ${r.isSelf ? 'is-self' : ''}" href="#/u/${r.steamid}">
+          <span class="ranking-pos ${medal}">${i + 1}</span>
+          <img class="ranking-avatar" src="${esc(r.avatar)}" data-fallback="" alt="" loading="lazy">
+          <span class="ranking-who">
+            <span class="ranking-name">${esc(r.name)}</span>
+            <span class="ranking-sub">
+              <span class="rank-chip tone-${rank.tone}">${rank.name}</span>
+              ${r.rarestPct != null ? `<span>plus rare ≤ ${fmtRarity(r.rarestPct)}</span>` : ''}
+            </span>
+          </span>
+          <span class="ranking-score">${icon('trophy')}${nf.format(r.platinum)}</span>
+        </a>
+      </li>`;
+    })
+    .join('')}</ol>`;
 }
 
 const SPARKS = [

@@ -53,6 +53,17 @@ async function migrate() {
       created_at timestamptz not null default now(),
       primary key (steamid, appid, kind)
     );
+    create table if not exists profile_summaries (
+      steamid text primary key,
+      name text not null,
+      avatar text,
+      platinum integer not null,
+      latest_appid integer,
+      latest_at bigint,
+      rarest_appid integer,
+      rarest_pct real,
+      updated_at timestamptz not null default now()
+    );
     create table if not exists user_snapshots (
       steamid text primary key,
       data jsonb not null,
@@ -212,6 +223,40 @@ export async function importMarks(steamid, marks) {
     );
   }
   return getMarks(steamid);
+}
+
+// ---------------------------------------------------------------- résumés de profils (classement entre amis)
+
+export async function saveSummary(s) {
+  await pool.query(
+    `insert into profile_summaries (steamid, name, avatar, platinum, latest_appid, latest_at, rarest_appid, rarest_pct, updated_at)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, now())
+     on conflict (steamid) do update set
+       name = excluded.name, avatar = excluded.avatar, platinum = excluded.platinum,
+       latest_appid = excluded.latest_appid, latest_at = excluded.latest_at,
+       rarest_appid = excluded.rarest_appid, rarest_pct = excluded.rarest_pct, updated_at = now()`,
+    [s.steamid, s.name, s.avatar, s.platinum, s.latestAppid, s.latestAt, s.rarestAppid, s.rarestPct],
+  );
+}
+
+export async function getSummaries(steamids) {
+  if (!steamids.length) return [];
+  const { rows } = await pool.query(
+    `select steamid, name, avatar, platinum, latest_appid, latest_at, rarest_appid, rarest_pct, updated_at
+     from profile_summaries where steamid = any($1::text[])`,
+    [steamids],
+  );
+  return rows.map((r) => ({
+    steamid: r.steamid,
+    name: r.name,
+    avatar: r.avatar,
+    platinum: r.platinum,
+    latestAppid: r.latest_appid,
+    latestAt: r.latest_at == null ? null : Number(r.latest_at),
+    rarestAppid: r.rarest_appid,
+    rarestPct: r.rarest_pct,
+    updatedAt: Math.floor(new Date(r.updated_at).getTime() / 1000),
+  }));
 }
 
 export async function getSnapshot(steamid) {

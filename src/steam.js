@@ -267,6 +267,47 @@ async function getGlobalPercentages(appid) {
 }
 
 /**
+ * Résumé d'un profil (nombre de platines, dernier, plus rare) calculé uniquement à partir du cache :
+ * aucun appel à Steam. Renvoie null si la bibliothèque n'a pas été (assez) analysée.
+ */
+export async function computeSummary(steamid) {
+  const profile = await getProfile(steamid);
+  const games = profile.games.filter((g) => g.hasStats);
+  let known = 0;
+  const plats = [];
+  for (const g of games) {
+    const list = await caches.achievements.get(`${steamid}:${g.appid}`);
+    if (list === undefined) continue;
+    known++;
+    if (list?.length && list.every(([, achieved]) => achieved === 1)) {
+      plats.push({ appid: g.appid, at: Math.max(...list.map(([, , t]) => t || 0)) });
+    }
+  }
+  // On ne publie pas un score partiel : il faut que l'analyse soit (quasi) complète.
+  if (games.length && known / games.length < 0.9) return null;
+
+  const latest = plats.reduce((m, p) => (p.at > (m?.at ?? -1) ? p : m), null);
+  let rarest = null;
+  for (const p of plats) {
+    const global = await caches.global.get(p.appid);
+    const values = Object.values(global ?? {}).filter(Number.isFinite);
+    if (!values.length) continue;
+    const pct = Math.min(...values);
+    if (!rarest || pct < rarest.pct) rarest = { appid: p.appid, pct };
+  }
+  return {
+    steamid,
+    name: profile.player.name,
+    avatar: profile.player.avatar,
+    platinum: plats.length,
+    latestAppid: latest?.appid ?? null,
+    latestAt: latest?.at ?? null,
+    rarestAppid: rarest?.appid ?? null,
+    rarestPct: rarest?.pct ?? null,
+  };
+}
+
+/**
  * Difficulté des platines, d'après les pourcentages mondiaux de déblocage :
  * - platinumMax : % du succès le plus rare du jeu, qui majore le % de joueurs ayant tout débloqué ;
  * - hardest : % du succès le plus rare parmi ceux qu'il reste au joueur (null s'il n'en reste aucun) ;

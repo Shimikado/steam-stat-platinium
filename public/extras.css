@@ -941,6 +941,161 @@
 }
 
 
+/* ---------------------------------------------------------------- amis : platines & classement */
+
+.friends-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.friends-tools .chip svg {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+}
+
+.friend-plat {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: var(--tone, var(--surface-3));
+  color: #1c2436;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.friend-plat svg {
+  width: 10px;
+  height: 10px;
+}
+
+.friend .friend-name {
+  margin-top: 4px;
+}
+
+.ranking {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ranking-row {
+  display: grid;
+  grid-template-columns: 34px 40px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ranking-row:hover {
+    border-color: var(--surface-3);
+  }
+}
+
+.ranking-row.is-self {
+  border-color: rgb(var(--accent-rgb) / 0.55);
+  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.12), var(--surface-2) 60%);
+}
+
+.ranking-pos {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--text-2);
+  background: var(--surface-3);
+}
+
+.ranking-pos.medal-1 {
+  color: #3a2a00;
+  background: linear-gradient(135deg, #fff1b0, #e0a82e);
+  box-shadow: 0 0 16px rgba(255, 211, 110, 0.4);
+}
+
+.ranking-pos.medal-2 {
+  color: #232a36;
+  background: linear-gradient(135deg, #f4f6fa, #a9b3c3);
+}
+
+.ranking-pos.medal-3 {
+  color: #3a1f0c;
+  background: linear-gradient(135deg, #f3c39a, #b26d3c);
+}
+
+.ranking-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--surface-3);
+}
+
+.ranking-who {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ranking-name {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ranking-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ranking-sub .rank-chip {
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+.ranking-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--plat-1);
+}
+
+.ranking-score svg {
+  width: 18px;
+  height: 18px;
+  color: var(--plat-2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .celebration-glow,
   .new-tag {

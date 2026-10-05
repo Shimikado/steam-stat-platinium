@@ -4,6 +4,7 @@ import cookieSession from 'cookie-session';
 import { rateLimit } from 'express-rate-limit';
 import {
   SteamError,
+  computeSummary,
   getAchievementSummaries,
   getFriends,
   getGameAchievements,
@@ -11,7 +12,17 @@ import {
   getProfile,
   resolveSteamId,
 } from './src/steam.js';
-import { getAdditions, getMarks, getSnapshot, importMarks, initDb, saveSnapshot, setMark } from './src/db.js';
+import {
+  getAdditions,
+  getMarks,
+  getSnapshot,
+  getSummaries,
+  importMarks,
+  initDb,
+  saveSnapshot,
+  saveSummary,
+  setMark,
+} from './src/db.js';
 
 try {
   process.loadEnvFile();
@@ -163,6 +174,25 @@ const appidList = (raw, max) =>
 api.get('/additions', async (req, res) => {
   requireDb();
   res.json(await getAdditions(appidList(req.query.appids, 3000)));
+});
+
+// Résumé d'un profil analysé (classement entre amis). Calculé par le serveur depuis son cache :
+// aucun appel Steam, et impossible d'envoyer un faux score.
+api.post('/summary/:steamid', async (req, res) => {
+  requireDb();
+  const summary = await computeSummary(steamidParam(req));
+  if (!summary) throw new SteamError('Analyse incomplète', 409);
+  await saveSummary(summary);
+  res.json(summary);
+});
+
+api.get('/summaries', async (req, res) => {
+  requireDb();
+  const ids = String(req.query.ids ?? '')
+    .split(',')
+    .filter((id) => STEAMID_RE.test(id))
+    .slice(0, 600);
+  res.json(await getSummaries(ids));
 });
 
 api.get('/marks', async (req, res) => {
