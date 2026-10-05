@@ -79,10 +79,10 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   ]);
 
   // Fond
-  ctx.fillStyle = '#090d14';
+  ctx.fillStyle = '#140f15';
   ctx.fillRect(0, 0, W, H);
   for (const [x, y, r, c] of [
-    [1050, -60, 620, 'rgba(90,184,255,0.16)'],
+    [1050, -60, 620, 'rgba(255,128,92,0.18)'],
     [80, 640, 560, 'rgba(185,203,228,0.10)'],
     [760, 420, 420, 'rgba(197,139,255,0.08)'],
   ]) {
@@ -106,7 +106,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   ctx.fillStyle = gradient(ctx, ax, ay, ax + as, ay + as, tone);
   roundRect(ctx, ax - 6, ay - 6, as + 12, as + 12, 30);
   ctx.fill();
-  ctx.fillStyle = '#090d14';
+  ctx.fillStyle = '#140f15';
   roundRect(ctx, ax - 2, ay - 2, as + 4, as + 4, 26);
   ctx.fill();
   if (avatar) drawCover(ctx, avatar, ax, ay, as, as, 24);
@@ -147,7 +147,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
     ctx.font = '700 32px Sora, Inter, sans-serif';
     ctx.fillText(value, sx, 488);
     const vw = ctx.measureText(value).width;
-    ctx.fillStyle = '#a3aec3';
+    ctx.fillStyle = '#bdb0b4';
     ctx.font = '500 18px Inter, sans-serif';
     ctx.fillText(label, sx, 516);
     sx += Math.max(vw, ctx.measureText(label).width) + 46;
@@ -155,7 +155,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
 
   // Jaquettes en éventail
   if (featured.length) {
-    ctx.fillStyle = '#a3aec3';
+    ctx.fillStyle = '#bdb0b4';
     ctx.font = '700 15px Inter, sans-serif';
     ctx.letterSpacing = '2px';
     ctx.fillText(featured.some((f) => f.rarity != null) ? 'MES PLATINES LES PLUS RARES' : 'MES DERNIERS PLATINES', 690, 92);
@@ -177,7 +177,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
       ctx.shadowColor = 'rgba(0,0,0,0.55)';
       ctx.shadowBlur = 30;
       ctx.shadowOffsetY = 12;
-      ctx.fillStyle = '#1f2a40';
+      ctx.fillStyle = '#342a37';
       roundRect(ctx, 0, 0, cw, ch, 14);
       ctx.fill();
       ctx.shadowColor = 'transparent';
@@ -195,12 +195,12 @@ async function drawCard({ player, rank, plats, stats, featured }) {
         ctx.fillStyle = tier?.id === 'ultra' ? gradient(ctx, 10, 0, 10 + lw, 0, TONES.legend) : 'rgba(9,13,20,0.85)';
         roundRect(ctx, 10, ch - 40, lw, 30, 15);
         ctx.fill();
-        ctx.fillStyle = tier?.id === 'ultra' ? '#1d1630' : '#e8edf6';
+        ctx.fillStyle = tier?.id === 'ultra' ? '#1d1630' : '#f5eeea';
         ctx.fillText(label, 20, ch - 19);
       }
       ctx.restore();
 
-      ctx.fillStyle = '#e8edf6';
+      ctx.fillStyle = '#f5eeea';
       ctx.font = '600 16px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(fitText(ctx, f.name, cw + 8), x + cw / 2, y + ch + 44);
@@ -209,7 +209,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   }
 
   // Pied de carte
-  ctx.fillStyle = '#6f7b93';
+  ctx.fillStyle = '#8a7d83';
   ctx.font = '600 17px Inter, sans-serif';
   ctx.fillText('Steam Stats', 64, H - 52);
   ctx.textAlign = 'right';

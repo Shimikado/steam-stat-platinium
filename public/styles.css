@@ -1,15 +1,18 @@
 :root {
-  --bg: #090d14;
-  --surface: #111723;
-  --surface-2: #172033;
-  --surface-3: #1f2a40;
-  --border: #243049;
-  --text: #e8edf6;
-  --text-2: #a3aec3;
-  --muted: #6f7b93;
-  --accent: #5ab8ff;
-  --accent-strong: #8ccfff;
-  --accent-soft: rgba(90, 184, 255, 0.14);
+  --bg: #140f15;
+  --surface: #1d171f;
+  --surface-2: #261f29;
+  --surface-3: #342a37;
+  --border: #3a2f3e;
+  --text: #f5eeea;
+  --text-2: #bdb0b4;
+  --muted: #8a7d83;
+  --accent-rgb: 255 128 92;
+  --accent: rgb(var(--accent-rgb));
+  --accent-strong: #ffb299;
+  --accent-soft: rgb(var(--accent-rgb) / 0.14);
+  /* Couleur d'ambiance tirée du visuel d'un jeu du profil (voir ambient.js) */
+  --ambient-rgb: 255 128 92;
   --plat-1: #f4f8ff;
   --plat-2: #b9cbe4;
   --plat-3: #7d97bd;
@@ -36,9 +39,12 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 85% -10%, rgba(90, 184, 255, 0.09), transparent 60%),
-    radial-gradient(900px 500px at -10% 10%, rgba(185, 203, 228, 0.06), transparent 60%),
+    radial-gradient(1200px 640px at 85% -10%, rgb(var(--ambient-rgb) / 0.16), transparent 60%),
+    radial-gradient(900px 560px at -10% 12%, rgba(232, 71, 111, 0.09), transparent 60%),
+    radial-gradient(900px 700px at 50% 110%, rgb(var(--ambient-rgb) / 0.07), transparent 60%),
     var(--bg);
+  background-attachment: fixed;
+  transition: background-color 0.6s ease;
   color: var(--text);
   font-family: var(--font);
   font-size: 15px;
@@ -85,9 +91,9 @@ svg {
   justify-content: space-between;
   gap: 12px;
   padding: 12px var(--gutter);
-  background: rgba(9, 13, 20, 0.78);
+  background: rgba(20, 15, 21, 0.78);
   backdrop-filter: blur(14px);
-  border-bottom: 1px solid rgba(36, 48, 73, 0.6);
+  border-bottom: 1px solid rgba(62, 50, 66, 0.6);
 }
 
 .brand {
@@ -149,14 +155,15 @@ svg {
 }
 
 .btn-primary {
-  background: linear-gradient(180deg, #2a9ff0, #1679c9);
-  border-color: #3aa7f2;
+  background: linear-gradient(135deg, #ff8a5c, #e8476f);
+  border-color: #ff9a74;
+  color: #fff;
   font-weight: 600;
 }
 
 .btn-primary:hover {
-  background: linear-gradient(180deg, #3aabf7, #1d86d8);
-  border-color: #5ab8ff;
+  background: linear-gradient(135deg, #ff9b72, #f05a80);
+  border-color: #ffb299;
 }
 
 .btn-lg {
@@ -345,6 +352,46 @@ main {
 
 /* ---------------------------------------------------------------- profile */
 
+/* Bannière floutée derrière l'en-tête, tirée du visuel d'un jeu du profil */
+main {
+  position: relative;
+  isolation: isolate;
+}
+
+.profile-banner {
+  position: absolute;
+  top: -80px;
+  left: 50%;
+  z-index: -1;
+  width: min(1400px, 100vw);
+  height: 520px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(70% 80% at 50% 20%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(70% 80% at 50% 20%, #000 30%, transparent 80%);
+}
+
+.profile-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(36px) saturate(1.3);
+  opacity: 0.42;
+  transform: scale(1.15);
+  animation: banner-in 1.2s ease both;
+}
+
+.profile-banner img.broken {
+  display: none;
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .profile {
   display: flex;
   align-items: center;
@@ -471,7 +518,7 @@ main {
 .tile.hero {
   grid-column: span 2;
   background:
-    linear-gradient(135deg, rgba(90, 184, 255, 0.12), transparent 55%),
+    linear-gradient(135deg, rgb(var(--accent-rgb) / 0.12), transparent 55%),
     var(--surface);
 }
 
@@ -593,8 +640,8 @@ main {
   inset: 0;
   z-index: -1;
   background:
-    linear-gradient(90deg, rgba(9, 13, 20, 0.92) 0%, rgba(9, 13, 20, 0.6) 55%, rgba(9, 13, 20, 0.15) 100%),
-    linear-gradient(0deg, rgba(9, 13, 20, 0.6), transparent 60%);
+    linear-gradient(90deg, rgba(20, 15, 21, 0.92) 0%, rgba(20, 15, 21, 0.6) 55%, rgba(20, 15, 21, 0.15) 100%),
+    linear-gradient(0deg, rgba(20, 15, 21, 0.6), transparent 60%);
 }
 
 /* Reflet qui balaie la bannière une fois, à l'apparition. */
@@ -745,7 +792,7 @@ main {
   font-weight: 700;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  background: rgba(9, 13, 20, 0.75);
+  background: rgba(20, 15, 21, 0.75);
   border: 1px solid var(--border);
   color: var(--text-2);
   backdrop-filter: blur(6px);
@@ -758,7 +805,7 @@ main {
 
 .rarity-pill.tier-rare {
   color: var(--accent-strong);
-  border-color: rgba(90, 184, 255, 0.5);
+  border-color: rgb(var(--accent-rgb) / 0.5);
 }
 
 .rarity-pill.tier-ultra {
@@ -1629,7 +1676,7 @@ main {
 
 .chip[aria-pressed='true'] {
   background: var(--accent-soft);
-  border-color: rgba(90, 184, 255, 0.5);
+  border-color: rgb(var(--accent-rgb) / 0.5);
   color: var(--accent-strong);
 }
 
@@ -1826,7 +1873,7 @@ main {
   pointer-events: none;
   padding: 7px 10px;
   border-radius: 8px;
-  background: #0b111c;
+  background: #1a141c;
   border: 1px solid var(--surface-3);
   box-shadow: var(--shadow);
   font-size: 12.5px;
@@ -1860,7 +1907,7 @@ main {
 }
 
 .modal::backdrop {
-  background: rgba(3, 6, 12, 0.72);
+  background: rgba(10, 6, 10, 0.72);
   backdrop-filter: blur(4px);
 }
 
@@ -1898,7 +1945,7 @@ main {
   border: 0;
   display: grid;
   place-items: center;
-  background: rgba(9, 13, 20, 0.7);
+  background: rgba(20, 15, 21, 0.7);
   cursor: pointer;
 }
 
@@ -1960,7 +2007,7 @@ main {
   gap: 14px;
   align-items: center;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(36, 48, 73, 0.6);
+  border-bottom: 1px solid rgba(62, 50, 66, 0.6);
 }
 
 .ach:last-child {

@@ -27,6 +27,7 @@ import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextp
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
 import { loadMarks, toggleMark } from './marks.js';
+import { applyAmbient, restoreAmbient, updateAmbient } from './ambient.js';
 
 const app = $('#app');
 const SCAN_BATCH = 25;
@@ -234,13 +235,25 @@ function renderTopbar(viewing) {
 
 // ---------------------------------------------------------------- accueil
 
+/** Teinte la page et la bannière d'en-tête avec le visuel d'un jeu (dernier platine ou jeu le plus joué). */
+let ambientAppid = null;
+function setAmbient(appid) {
+  if (!appid || appid === ambientAppid) return;
+  ambientAppid = appid;
+  const banner = $('#profileBanner');
+  if (banner) banner.innerHTML = artImg(appid, ['library_hero.jpg', 'header.jpg'], '');
+  updateAmbient(state.steamid, appid);
+}
+
 function renderLanding() {
+  ambientAppid = null;
+  applyAmbient(null);
   app.innerHTML = `
     <section class="landing">
       <div class="landing-inner">
         <div class="landing-trophy">${icon('trophy')}</div>
         <h1>Ta bibliothèque Steam,<br><span class="plat-text">en vitrine.</span></h1>
-        <p class="lead">Jeux platinés mis à l’honneur, progression des succès, temps de jeu cumulé et quelques stats dont tu ne soupçonnais pas l’existence.</p>
+        <p class="lead">Tes platines, tes succès et ton temps de jeu.</p>
         <a class="btn btn-primary btn-lg" href="/auth/steam">${icon('steam')} Se connecter avec Steam</a>
         <div class="divider">ou consulter un profil public</div>
         <form class="lookup" id="lookup">
@@ -321,6 +334,9 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   }
 
   renderDashboard();
+  // Ambiance : celle mémorisée pour ce profil, sinon le jeu le plus joué en attendant l'analyse.
+  const saved = restoreAmbient(steamid);
+  setAmbient(saved?.appid ?? [...profile.games].sort((a, b) => b.playtime - a.playtime)[0]?.appid);
   loadFriends(token);
   scanAchievements(token, refresh);
 }
@@ -353,6 +369,7 @@ async function scanAchievements(token, refresh) {
   update();
   detectAddedAchievements();
   update();
+  setAmbient(compute().platinum[0]?.g.appid);
   await loadDifficulty(token);
   if (token !== state.token) return;
   await loadNext(token);
@@ -387,7 +404,9 @@ function renderNotice(title, text, action = '') {
 function renderDashboard() {
   const { player } = state.profile;
 
+  ambientAppid = null;
   app.innerHTML = `
+    <div class="profile-banner" id="profileBanner" aria-hidden="true"></div>
     <section class="profile">
       <div class="avatar-wrap" id="avatarWrap"><img class="avatar" src="${esc(player.avatar)}" alt=""></div>
       <div class="profile-main">
@@ -415,27 +434,27 @@ function renderDashboard() {
     </section>
 
     <section class="section goals-section" id="goalsSection" hidden>
-      <div class="section-head"><h2>${icon('star')} Mes objectifs de platine<span class="count" id="goalCount"></span></h2><p>Les platines que tu as décidé d’aller chercher</p></div>
+      <div class="section-head"><h2>${icon('star')} Mes objectifs de platine<span class="count" id="goalCount"></span></h2></div>
       <div id="goals"></div>
     </section>
 
     <section class="section" id="addedSection" hidden>
-      <div class="section-head"><h2>Nouveaux succès ajoutés</h2><p>Des mises à jour ont ajouté des succès à ces jeux</p></div>
+      <div class="section-head"><h2>Nouveaux succès ajoutés</h2></div>
       <div id="added"></div>
     </section>
 
     <section class="section">
-      <div class="section-head"><h2>Ton prochain platine</h2><p>Les jeux dont les succès restants sont les plus accessibles</p></div>
+      <div class="section-head"><h2>Ton prochain platine</h2></div>
       <div id="nextPlat"></div>
     </section>
 
     <section class="section">
-      <div class="section-head"><h2>Tier list des platines à faire</h2><p>Classés selon le succès restant le plus rare · survole un jeu pour le détail</p></div>
+      <div class="section-head"><h2>Tier list des platines à faire</h2><p>Selon le succès restant le plus rare</p></div>
       <div id="tiers"></div>
     </section>
 
     <section class="section">
-      <div class="section-head"><h2>Presque platinés</h2><p>75 % de complétion ou plus — le sprint final</p></div>
+      <div class="section-head"><h2>Presque platinés</h2><p>75 % et plus</p></div>
       <div id="nearly"></div>
     </section>
 
@@ -849,7 +868,7 @@ function renderGoals(s) {
   section.hidden = state.scan.running || (!list.length && !mine);
   $('#goalCount').textContent = list.length ? ` ${list.length}` : '';
   if (!list.length) {
-    $('#goals').innerHTML = `<div class="empty goals-empty">${icon('star')} Ouvre la fiche d’un jeu en cours et clique sur <strong>« Objectif platine »</strong> pour le suivre ici.</div>`;
+    $('#goals').innerHTML = `<div class="empty goals-empty">${icon('star')} Aucun objectif pour l’instant. Ajoute-en depuis la fiche d’un jeu.</div>`;
     return;
   }
   $('#goals').innerHTML = `<div class="goal-list">${list
@@ -887,7 +906,7 @@ function renderNext() {
   if (state.next === null) {
     el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Recherche des succès les plus accessibles…'}</div>`;
   } else if (!state.next.length) {
-    el.innerHTML = `<div class="empty">Aucun jeu commencé à recommander pour l’instant : lance-toi dans un jeu et reviens voir !</div>`;
+    el.innerHTML = `<div class="empty">Aucun jeu commencé à recommander.</div>`;
   } else {
     el.innerHTML = renderNextPlatinums(state.next);
   }

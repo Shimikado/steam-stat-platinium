@@ -36,7 +36,7 @@
 }
 
 .celebration::backdrop {
-  background: rgba(3, 6, 12, 0.78);
+  background: rgba(10, 6, 10, 0.78);
   backdrop-filter: blur(6px);
 }
 
@@ -228,10 +228,10 @@
 }
 
 .next-card.is-top {
-  border-color: rgba(90, 184, 255, 0.55);
+  border-color: rgb(var(--accent-rgb) / 0.55);
   box-shadow:
-    0 0 0 1px rgba(90, 184, 255, 0.15),
-    0 10px 40px rgba(90, 184, 255, 0.1);
+    0 0 0 1px rgb(var(--accent-rgb) / 0.15),
+    0 10px 40px rgb(var(--accent-rgb) / 0.1);
 }
 
 .next-card .art {
@@ -632,7 +632,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(180deg, rgba(9, 13, 20, 0.1) 0%, rgba(9, 13, 20, 0.75) 45%, rgba(9, 13, 20, 0.96) 100%);
+  background: linear-gradient(180deg, rgba(20, 15, 21, 0.1) 0%, rgba(20, 15, 21, 0.75) 45%, rgba(20, 15, 21, 0.96) 100%);
 }
 
 .goal-star {
