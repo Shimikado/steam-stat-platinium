@@ -32,7 +32,7 @@ npm start              # http://localhost:3000
 - **Numéro de platine** chronologique et **certificat de platine** dans la fiche des jeux platinés
 - **Platines épinglés** (3 au maximum) : depuis la fenêtre de la carte de chasseur ou le certificat d'un jeu platiné. Ils passent en tête de la vitrine et sur la carte, complétés par les plus rares, et donnent leurs couleurs au fond animé.
 - **Fond animé** : chacune des trois lueurs prend la couleur dominante d'un jeu (platines épinglés, sinon dernier platine, plus rare, puis jeu le plus joué), et la quatrième mêle discrètement les deux premières.
-- **Carte de chasseur** : une image PNG de 1200×630 (rang, platines, plus rares) à copier dans Discord ou à télécharger
+- **Carte de chasseur** : une image PNG de 1200×630 consacrée aux platines (nombre, heures pour les platiner, succès décrochés, ultra-rares, 3 platines mis en avant) à copier dans Discord ou à télécharger
 - Succès débloqués par mois, top 10 du temps de jeu, répartition de la complétion
 - Anecdotes : premier succès, journée record, platine le plus rapide ou le plus long, vieil amour délaissé…
 - Bibliothèque filtrable et triable ; un clic sur un jeu ouvre la liste de ses succès, avec leur rareté mondiale

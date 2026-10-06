@@ -1116,12 +1116,25 @@ function shareCardData() {
       rarity: state.rarity.get(p.g.appid) ?? null,
       pinned: state.pins.has(p.g.appid),
     })),
-    stats: [
-      [nf.format(s.unlocked), 'succès débloqués'],
-      s.avgCompletion != null ? [`${Math.round(s.avgCompletion)} %`, 'complétion moyenne'] : null,
-      state.profile.playtimeHidden ? null : [`${nf.format(Math.round(s.totalMin / 60))} h`, 'de jeu'],
-    ].filter(Boolean),
+    // La carte ne parle que des platines : rien sur le reste de la bibliothèque.
+    stats: platinumStats(s),
   };
+}
+
+function platinumStats(s) {
+  const minutes = s.platinum.reduce((t, p) => t + p.g.playtime, 0);
+  const achievements = s.platinum.reduce((t, p) => t + p.a.total, 0);
+  const rarities = s.platinum.map((p) => state.rarity.get(p.g.appid)).filter((r) => r != null);
+  const ultra = rarities.filter((r) => r <= 5).length;
+  return [
+    !state.profile.playtimeHidden && minutes ? [`${nf.format(Math.round(minutes / 60))} h`, 'pour les platiner'] : null,
+    achievements ? [nf.format(achievements), 'succès décrochés'] : null,
+    ultra
+      ? [nf.format(ultra), ultra > 1 ? 'platines ultra-rares' : 'platine ultra-rare']
+      : rarities.length
+        ? [`≤ ${fmtRarity(Math.min(...rarities))}`, 'pour le plus rare']
+        : null,
+  ].filter(Boolean);
 }
 
 function shareCard() {
