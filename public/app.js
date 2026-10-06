@@ -298,7 +298,9 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
-  ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } = loadMarks(steamid));
+  // Objectifs, marquages DLC et épingles ne concernent que son propre profil, une fois connecté.
+  ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } =
+    state.me && steamid === state.me ? loadMarks(steamid) : { dlc: new Set(), goal: new Set(), pin: new Set() });
   state.tierOpen = new Set();
   state.friends = [];
   state.summaries = new Map();
@@ -938,7 +940,9 @@ async function loadNext(token) {
 // ---------------------------------------------------------------- synchronisation (base de données)
 
 /** Profil du compte connecté, avec la base disponible : marquages et instantané vivent côté serveur. */
-const ownSynced = () => state.sync && state.me && state.steamid === state.me;
+/** Profil du compte connecté : seul endroit où l'on peut marquer des jeux (objectifs, DLC, épingles). */
+const canMark = () => Boolean(state.me && state.steamid === state.me);
+const ownSynced = () => state.sync && canMark();
 
 async function syncMarks(token) {
   try {
@@ -1069,6 +1073,7 @@ async function checkProgress() {
 
 /** Bascule l'épingle d'un platine ; renvoie false si la limite est atteinte. */
 function togglePin(appid) {
+  if (!canMark()) return false;
   const on = !state.pins.has(appid);
   const marks = toggleMark(state.steamid, 'pin', appid);
   if (!marks) {
@@ -1125,12 +1130,18 @@ function shareCard() {
   const choices = [...s.platinum]
     .sort((x, y) => (state.rarity.get(x.g.appid) ?? 101) - (state.rarity.get(y.g.appid) ?? 101))
     .map((p) => ({ appid: p.g.appid, name: p.g.name }));
-  openShareCard(shareCardData(), {
-    choices,
-    maxPins: MAX_PINS,
-    isPinned: (appid) => state.pins.has(appid),
-    onToggle: (appid) => (togglePin(appid) ? shareCardData() : null),
-  });
+  // Le choix des platines épinglés n'est proposé que sur son propre profil.
+  openShareCard(
+    shareCardData(),
+    canMark()
+      ? {
+          choices,
+          maxPins: MAX_PINS,
+          isPinned: (appid) => state.pins.has(appid),
+          onToggle: (appid) => (togglePin(appid) ? shareCardData() : null),
+        }
+      : null,
+  );
 }
 
 // ---------------------------------------------------------------- amis
@@ -1812,7 +1823,7 @@ modal.addEventListener('click', (e) => {
     else legacy();
   }
   const toggle = e.target.closest('[data-mark]');
-  if (toggle) {
+  if (toggle && canMark()) {
     const appid = Number(toggle.dataset.appid);
     const g = state.profile.games.find((x) => x.appid === appid);
     const kind = toggle.dataset.mark;
@@ -1852,7 +1863,7 @@ function certificate(g, a) {
       <span><b>${a.total}</b>succès</span>
       <span><b>${fmtDate(a.times[0])}</b>premier succès</span>
     </div>
-    <div class="cert-actions">${pinButton(g.appid)}</div>`;
+    ${canMark() ? `<div class="cert-actions">${pinButton(g.appid)}</div>` : ''}`;
 }
 
 async function openGame(appid) {
@@ -1924,7 +1935,7 @@ function gameNotices(g, st) {
       <span>Il te reste <strong>${d.remaining} succès</strong> pour le platine · le plus dur est débloqué par ${fmtRarity(d.hardest)} des joueurs</span>
     </div>`);
   }
-  if (st.kind === 'progress' || st.kind === 'notstarted') {
+  if (canMark() && (st.kind === 'progress' || st.kind === 'notstarted')) {
     const goal = state.goals.has(g.appid);
     const dlc = state.dlcBlocked.has(g.appid);
     if (dlc) {
