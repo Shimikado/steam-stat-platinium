@@ -55,6 +55,13 @@ Avec `DATABASE_URL` (Postgres, par exemple l'offre gratuite de [Neon](https://ne
 
 Les tables sont créées au démarrage. Sans base, l'app garde son fonctionnement local (navigateur et disque).
 
+## Économie d'appels Steam (limite : 100 000 par jour)
+
+- Les succès d'un jeu ne sont redemandés que si le jeu a été rejoué depuis : son temps de jeu ou sa date de dernière session ont changé. Sinon le cache reste valable jusqu'à 30 jours. Si le joueur masque son temps de jeu, ce repère n'existe pas et le cache dure 6 h.
+- Pourcentages mondiaux : 7 jours de cache. Liste des succès d'un jeu : 30 jours. Liste d'amis : 6 h (les statuts en ligne restent rafraîchis toutes les 5 min).
+- La difficulté n'est évaluée que pour les jeux commencés.
+- Compteur journalier consultable sur `/api/usage`. Au-delà de `STEAM_DAILY_BUDGET` (95 000 par défaut), les nouveaux appels sont refusés pour ne pas faire bloquer la clé.
+
 ## Déploiement sur Render (gratuit)
 
 1. Sur https://dashboard.render.com : **New +** → **Blueprint**, puis choisis ce dépôt GitHub. Render lit `render.yaml`.

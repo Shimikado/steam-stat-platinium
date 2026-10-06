@@ -24,6 +24,7 @@ import {
   saveSummary,
   setMark,
 } from './src/db.js';
+import { loadUsage, usage } from './src/usage.js';
 
 try {
   process.loadEnvFile();
@@ -46,6 +47,7 @@ if (!process.env.STEAM_API_KEY && !DEMO) {
 
 // Base Postgres facultative (cache persistant, succès ajoutés, marquages synchronisés).
 const DB = DEMO ? false : await initDb();
+if (DB) await loadUsage();
 console.log(DB ? 'Base de données : connectée.' : 'Base de données : aucune (fonctionnement local).');
 
 if (!process.env.SESSION_SECRET && HTTPS) {
@@ -273,6 +275,9 @@ api.get('/img', async (req, res) => {
   if (buf.length > 8 * 1024 * 1024) return res.status(413).end();
   res.set({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' }).send(buf);
 });
+
+// Consommation du jour de la clé Steam (limite : 100 000 appels).
+api.get('/usage', (req, res) => res.json(usage()));
 
 api.get('/art', async (req, res) => {
   const appids = String(req.query.appids ?? '')

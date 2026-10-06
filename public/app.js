@@ -712,13 +712,13 @@ function renderRank(s) {
 
 /**
  * Récupère, pour chaque jeu avec succès, la rareté de son platine et la difficulté de ce qu'il reste.
- * Ordre : platinés (vitrine), puis jeux commencés (tier list), puis le reste.
+ * Ordre : platinés (vitrine), puis jeux commencés (tier list).
  */
 async function loadDifficulty(token) {
   const s = compute();
   const order = [...s.platinum, ...s.progress.sort((x, y) => y.a.percent - x.a.percent)].map((x) => x.g.appid);
-  const others = state.profile.games.filter((g) => g.status.kind === 'notstarted').map((g) => g.appid);
-  const ids = [...order, ...others].filter((id) => !state.diff.has(id));
+  // Jeux jamais commencés exclus : leur difficulté sert peu et coûterait un appel Steam chacun.
+  const ids = order.filter((id) => !state.diff.has(id));
 
   state.diffScan = { done: 0, total: ids.length, running: ids.length > 0 };
   update();

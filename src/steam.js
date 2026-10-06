@@ -1,10 +1,12 @@
 import path from 'node:path';
 import { TtlCache } from './cache.js';
 import { recordTotals } from './db.js';
+import { countCall, overBudget } from './usage.js';
 
 const API = 'https://api.steampowered.com';
 const CACHE_DIR = path.resolve('.cache');
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 
 export class SteamError extends Error {
   constructor(message, status = 502) {
@@ -15,14 +17,20 @@ export class SteamError extends Error {
 
 const caches = {
   profile: new TtlCache({ ttlMs: 10 * 60 * 1000 }),
-  achievements: new TtlCache({ ttlMs: 6 * HOUR, file: path.join(CACHE_DIR, 'achievements.json'), ns: 'ach' }),
-  schema: new TtlCache({ ttlMs: 7 * 24 * HOUR, file: path.join(CACHE_DIR, 'schema.json'), ns: 'schema' }),
-  global: new TtlCache({ ttlMs: 24 * HOUR, file: path.join(CACHE_DIR, 'global.json'), ns: 'global' }),
+  // Succès d'un joueur : valables tant que le jeu n'a pas été rejoué (voir isFresh), 30 jours au plus.
+  achievements: new TtlCache({ ttlMs: 30 * DAY, file: path.join(CACHE_DIR, 'achievements.json'), ns: 'ach2' }),
+  // Liste des succès d'un jeu et pourcentages mondiaux : ils bougent très lentement.
+  schema: new TtlCache({ ttlMs: 30 * DAY, file: path.join(CACHE_DIR, 'schema.json'), ns: 'schema' }),
+  global: new TtlCache({ ttlMs: 7 * DAY, file: path.join(CACHE_DIR, 'global.json'), ns: 'global' }),
+  friendList: new TtlCache({ ttlMs: 6 * HOUR, ns: 'friendlist' }),
 };
 
 async function call(endpoint, params = {}, { allowError = false } = {}) {
   const key = process.env.STEAM_API_KEY;
   if (!key) throw new SteamError('STEAM_API_KEY manquante côté serveur (voir .env)', 500);
+
+  if (overBudget()) throw new SteamError('Quota Steam du jour presque épuisé, réessaie demain', 429);
+  countCall();
 
   const url = new URL(API + endpoint);
   url.searchParams.set('key', key);
@@ -90,15 +98,13 @@ export async function getProfile(steamid, { refresh = false } = {}) {
     if (cached) return cached;
   }
 
-  const [summary, level, owned, recent] = await Promise.all([
+  const [summary, owned] = await Promise.all([
     call('/ISteamUser/GetPlayerSummaries/v2/', { steamids: steamid }),
-    call('/IPlayerService/GetSteamLevel/v1/', { steamid }).catch(() => null),
     call('/IPlayerService/GetOwnedGames/v1/', {
       steamid,
       include_appinfo: 1,
       include_played_free_games: 1,
     }),
-    call('/IPlayerService/GetRecentlyPlayedGames/v1/', { steamid }).catch(() => null),
   ]);
 
   const p = summary.body?.response?.players?.[0];
@@ -125,10 +131,10 @@ export async function getProfile(steamid, { refresh = false } = {}) {
       createdAt: p.timecreated ?? null,
       isPublic: p.communityvisibilitystate === 3,
     },
-    level: level?.body?.response?.player_level ?? null,
     // Si la liste des jeux est vide alors que le profil en a, les « détails des jeux » sont privés.
     gamesHidden: owned.body?.response?.game_count === undefined,
-    recent: (recent?.body?.response?.games ?? []).map((g) => g.appid),
+    // Jeux lancés ces 2 dernières semaines, déduits de la liste des jeux (évite un appel).
+    recent: games.filter((g) => g.playtime2w > 0).map((g) => g.appid),
     games,
   };
 
@@ -143,14 +149,18 @@ export async function getFriends(steamid) {
   const cached = await friendCache.get(steamid);
   if (cached) return cached;
 
-  let list;
-  try {
-    const { body } = await call('/ISteamUser/GetFriendList/v1/', { steamid, relationship: 'friend' });
-    list = body?.friendslist?.friends ?? [];
-  } catch (err) {
-    if (err.status === 403) return { private: true, friends: [] };
-    throw err;
+  let list = await caches.friendList.get(steamid);
+  if (list === undefined) {
+    try {
+      const { body } = await call('/ISteamUser/GetFriendList/v1/', { steamid, relationship: 'friend' });
+      list = body?.friendslist?.friends ?? [];
+    } catch (err) {
+      if (err.status !== 403) throw err;
+      list = null; // liste privée
+    }
+    caches.friendList.set(steamid, list);
   }
+  if (list === null) return { private: true, friends: [] };
 
   const since = new Map(list.map((f) => [f.steamid, f.friend_since]));
   const ids = [...since.keys()];
@@ -182,13 +192,26 @@ export async function getFriends(steamid) {
 
 // ---------------------------------------------------------------- succès
 
-/** Liste brute [{apiname, achieved, unlocktime}] d'un joueur pour un jeu, ou null si le jeu n'a pas de succès. */
-async function getPlayerAchievementList(steamid, appid, { refresh = false } = {}) {
+/**
+ * Un jeu ne peut gagner de succès que s'il a été joué : tant que son temps de jeu et sa date de
+ * dernière session n'ont pas bougé, la liste en cache reste valable, quel que soit son âge.
+ * Sans repère fiable (temps de jeu masqué par le joueur), on se rabat sur 6 h.
+ * stamp = { pt: temps de jeu, lp: dernière session, trust: repères fiables } ; sans stamp, tout cache convient.
+ */
+function isFresh(cached, stamp, refresh) {
+  if (!stamp) return true;
+  const sameActivity = cached.pt === stamp.pt && cached.lp === stamp.lp;
+  if (stamp.trust && sameActivity) return true;
+  if (refresh) return false;
+  return Date.now() - cached.t < 6 * HOUR;
+}
+
+/** Liste brute [[apiname, achieved, unlocktime]] d'un joueur pour un jeu, ou null si le jeu n'a pas de succès. */
+async function getPlayerAchievementList(steamid, appid, { refresh = false, stamp = null } = {}) {
   const key = `${steamid}:${appid}`;
-  if (!refresh) {
-    const cached = await caches.achievements.get(key);
-    if (cached !== undefined) return cached;
-  }
+  const cached = await caches.achievements.get(key);
+  if (cached && isFresh(cached, stamp, refresh)) return cached.l;
+  const store = (l) => caches.achievements.set(key, { l, pt: stamp?.pt ?? null, lp: stamp?.lp ?? null, t: Date.now() });
 
   const { body } = await call('/ISteamUserStats/GetPlayerAchievements/v1/', { steamid, appid }, { allowError: true });
   const ps = body?.playerstats;
@@ -197,13 +220,13 @@ async function getPlayerAchievementList(steamid, appid, { refresh = false } = {}
     const msg = ps?.error ?? '';
     if (/not public|private/i.test(msg)) throw new SteamError('Les succès de ce profil sont privés', 403);
     // « Requested app has no stats » : jeu sans succès, c'est un résultat valide.
-    caches.achievements.set(key, null);
+    store(null);
     return null;
   }
 
   const list = (ps.achievements ?? []).map((a) => [a.apiname, a.achieved, a.unlocktime]);
   const value = list.length ? list : null;
-  caches.achievements.set(key, value);
+  store(value);
   return value;
 }
 
@@ -222,10 +245,16 @@ function summarize(appid, list) {
 }
 
 export async function getAchievementSummaries(steamid, appids, { refresh = false } = {}) {
+  // Repères d'activité de chaque jeu, tirés de la liste des jeux (déjà en cache).
+  const profile = await getProfile(steamid);
+  const trust = profile.games.some((g) => g.playtime > 0); // temps de jeu masqué → repères inutilisables
+  const byId = new Map(profile.games.map((g) => [g.appid, g]));
   let privateError = null;
   const results = await mapLimit(appids, 6, async (appid) => {
+    const g = byId.get(appid);
+    const stamp = g ? { pt: g.playtime, lp: g.lastPlayed, trust } : null;
     try {
-      return summarize(appid, await getPlayerAchievementList(steamid, appid, { refresh }));
+      return summarize(appid, await getPlayerAchievementList(steamid, appid, { refresh, stamp }));
     } catch (err) {
       if (err.status === 403) privateError = err;
       return { appid, error: err.message };
@@ -323,8 +352,9 @@ export async function computeSummary(steamid) {
   let known = 0;
   const plats = [];
   for (const g of games) {
-    const list = await caches.achievements.get(`${steamid}:${g.appid}`);
-    if (list === undefined) continue;
+    const cached = await caches.achievements.get(`${steamid}:${g.appid}`);
+    if (cached === undefined) continue;
+    const list = cached.l;
     known++;
     if (list?.length && list.every(([, achieved]) => achieved === 1)) {
       plats.push({ appid: g.appid, at: Math.max(...list.map(([, , t]) => t || 0)) });

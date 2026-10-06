@@ -64,6 +64,10 @@ async function migrate() {
       rarest_pct real,
       updated_at timestamptz not null default now()
     );
+    create table if not exists api_usage (
+      day date primary key,
+      calls integer not null default 0
+    );
     create table if not exists user_snapshots (
       steamid text primary key,
       data jsonb not null,
@@ -77,7 +81,9 @@ async function migrate() {
 /** Garde la base sous le quota gratuit : le cache expiré depuis longtemps est supprimé. */
 async function cleanup() {
   try {
-    await pool.query(`delete from kv_cache where updated_at < now() - interval '14 days'`);
+    // Les succès d'un jeu non joué restent valables longtemps : on garde 45 jours.
+    // « ach » est l'ancien format du cache des succès (remplacé par « ach2 »).
+    await pool.query(`delete from kv_cache where updated_at < now() - interval '45 days' or ns = 'ach'`);
   } catch (err) {
     console.warn('Nettoyage du cache :', err.message);
   }
@@ -223,6 +229,23 @@ export async function importMarks(steamid, marks) {
     );
   }
   return getMarks(steamid);
+}
+
+// ---------------------------------------------------------------- compteur d'appels Steam
+
+export async function getUsage(day) {
+  if (!pool) return 0;
+  const { rows } = await pool.query(`select calls from api_usage where day = $1`, [day]);
+  return rows[0]?.calls ?? 0;
+}
+
+export async function addUsage(day, n) {
+  if (!pool || !n) return;
+  await pool.query(
+    `insert into api_usage (day, calls) values ($1, $2)
+     on conflict (day) do update set calls = api_usage.calls + excluded.calls`,
+    [day, n],
+  );
 }
 
 // ---------------------------------------------------------------- résumés de profils (classement entre amis)
