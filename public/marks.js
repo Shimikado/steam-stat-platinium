@@ -1,9 +1,11 @@
-// Marquages manuels par profil, mémorisés dans ce navigateur :
+// Marquages manuels par profil, mémorisés dans ce navigateur (et synchronisés avec le compte si possible) :
 // - dlc  : platine bloqué par un DLC que le joueur n'a pas (Steam ne l'indique pas) ;
-// - goal : objectif de platine, mis en avant sur le profil.
+// - goal : objectif de platine, mis en avant sur le profil ;
+// - pin  : platine épinglé, mis en avant dans la vitrine et sur la carte de chasseur (MAX_PINS au plus).
 
-const KEY = 'steam-stats:marks:v1'; // { steamid: { dlc: [appid…], goal: [appid…] } }
+const KEY = 'steam-stats:marks:v1'; // { steamid: { dlc: [appid…], goal: [appid…], pin: [appid…] } }
 const LEGACY_DLC_KEY = 'steam-stats:dlc-blocked:v1';
+export const MAX_PINS = 3;
 
 function readAll() {
   try {
@@ -21,41 +23,41 @@ function readAll() {
   }
 }
 
-export function loadMarks(steamid) {
-  const m = readAll()[steamid] ?? {};
-  return { dlc: new Set(m.dlc ?? []), goal: new Set(m.goal ?? []) };
-}
-
-/**
- * Bascule un marquage et renvoie les marquages à jour.
- * Un jeu bloqué par un DLC ne peut pas être un objectif (et inversement).
- */
-export function toggleMark(steamid, kind, appid) {
-  const all = readAll();
-  const marks = loadMarks(steamid);
-  const other = kind === 'dlc' ? 'goal' : 'dlc';
-  if (marks[kind].has(appid)) {
-    marks[kind].delete(appid);
-  } else {
-    marks[kind].add(appid);
-    marks[other].delete(appid);
-  }
-  all[steamid] = { dlc: [...marks.dlc], goal: [...marks.goal] };
+function writeAll(all) {
   try {
     localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
     // stockage indisponible : le marquage ne vaudra que pour cette visite
   }
+}
+
+export function loadMarks(steamid) {
+  const m = readAll()[steamid] ?? {};
+  return { dlc: new Set(m.dlc ?? []), goal: new Set(m.goal ?? []), pin: new Set(m.pin ?? []) };
+}
+
+/**
+ * Bascule un marquage et renvoie les marquages à jour (ou null si la limite d'épingles est atteinte).
+ * Un jeu bloqué par un DLC ne peut pas être un objectif (et inversement) ; l'épingle est indépendante.
+ */
+export function toggleMark(steamid, kind, appid) {
+  const all = readAll();
+  const marks = loadMarks(steamid);
+  if (marks[kind].has(appid)) {
+    marks[kind].delete(appid);
+  } else {
+    if (kind === 'pin' && marks.pin.size >= MAX_PINS) return null;
+    marks[kind].add(appid);
+    if (kind !== 'pin') marks[kind === 'dlc' ? 'goal' : 'dlc'].delete(appid);
+  }
+  all[steamid] = { dlc: [...marks.dlc], goal: [...marks.goal], pin: [...marks.pin] };
+  writeAll(all);
   return marks;
 }
 
 /** Remplace les marquages locaux d'un profil (copie de ceux synchronisés avec le serveur). */
-export function saveMarks(steamid, { dlc, goal }) {
+export function saveMarks(steamid, { dlc, goal, pin = [] }) {
   const all = readAll();
-  all[steamid] = { dlc: [...dlc], goal: [...goal] };
-  try {
-    localStorage.setItem(KEY, JSON.stringify(all));
-  } catch {
-    // facultatif
-  }
+  all[steamid] = { dlc: [...dlc], goal: [...goal], pin: [...pin] };
+  writeAll(all);
 }

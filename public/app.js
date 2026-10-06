@@ -27,7 +27,7 @@ import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
-import { loadMarks, saveMarks, toggleMark } from './marks.js';
+import { MAX_PINS, loadMarks, saveMarks, toggleMark } from './marks.js';
 import { applyAmbient, restoreAmbient, updateAmbient } from './ambient.js';
 import { installArtFallback, preloadArt, registerIcons } from './art.js';
 
@@ -60,6 +60,7 @@ const state = {
   lib: { filter: 'all', sort: 'playtime', search: '', limit: LIB_PAGE },
   dlcBlocked: new Set(), // jeux dont le platine est bloqué par un DLC (marquage manuel)
   goals: new Set(), // objectifs de platine (marquage manuel)
+  pins: new Set(), // platines épinglés (vitrine + carte de chasseur), dans l'ordre d'épinglage
   tierOpen: new Set(), // rangs de la tier list dépliés
   hallOpen: false, // salle des trophées affichée (#/u/<id>/trophees)
   token: 0,
@@ -281,7 +282,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
-  ({ dlc: state.dlcBlocked, goal: state.goals } = loadMarks(steamid));
+  ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } = loadMarks(steamid));
   state.tierOpen = new Set();
   state.friends = [];
   state.summaries = new Map();
@@ -927,8 +928,9 @@ async function syncMarks(token) {
   try {
     let marks = await getJSON('/api/marks');
     // Première synchronisation : on envoie les marquages déjà faits dans ce navigateur.
-    if (!marks.goal.length && !marks.dlc.length && (state.goals.size || state.dlcBlocked.size)) {
-      marks = await sendJSON('/api/marks/import', 'POST', { goal: [...state.goals], dlc: [...state.dlcBlocked] });
+    const remoteEmpty = !marks.goal.length && !marks.dlc.length && !marks.pin?.length;
+    if (remoteEmpty && (state.goals.size || state.dlcBlocked.size || state.pins.size)) {
+      marks = await sendJSON('/api/marks/import', 'POST', { goal: [...state.goals], dlc: [...state.dlcBlocked], pin: [...state.pins] });
     }
     if (token !== state.token) return;
     applyMarks(marks);
@@ -940,6 +942,7 @@ async function syncMarks(token) {
 function applyMarks(marks) {
   state.goals = new Set(marks.goal);
   state.dlcBlocked = new Set(marks.dlc);
+  state.pins = new Set(marks.pin ?? []);
   saveMarks(state.steamid, marks);
   update();
 }
@@ -1045,28 +1048,70 @@ async function checkProgress() {
 
 
 
+// ---------------------------------------------------------------- platines épinglés
+
+/** Bascule l'épingle d'un platine ; renvoie false si la limite est atteinte. */
+function togglePin(appid) {
+  const on = !state.pins.has(appid);
+  const marks = toggleMark(state.steamid, 'pin', appid);
+  if (!marks) {
+    showBanner(`${MAX_PINS} platines épinglés au maximum : retire-en un d’abord.`);
+    return false;
+  }
+  ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } = marks);
+  update();
+  if (ownSynced()) {
+    sendJSON('/api/marks', 'PUT', { appid, kind: 'pin', on })
+      .then(applyMarks)
+      .catch(() => showBanner('Épingle gardée sur cet appareil : la synchronisation a échoué.'));
+  }
+  return true;
+}
+
+const pinButton = (appid) => {
+  const on = state.pins.has(appid);
+  return `<button class="btn btn-sm cert-pin" type="button" data-mark="pin" data-appid="${appid}" aria-pressed="${on}">${icon('pin')} ${on ? 'Épinglé sur ma carte' : 'Épingler sur ma carte'}</button>`;
+};
+
 // ---------------------------------------------------------------- carte de chasseur
 
-function shareCard() {
+/** Contenu de la carte : platines épinglés d'abord, puis les plus rares pour compléter. */
+function shareCardData() {
   const s = compute();
+  const pinned = [...state.pins].map((id) => s.platinum.find((p) => p.g.appid === id)).filter(Boolean);
   const byRarity = s.platinum
     .filter((p) => state.rarity.has(p.g.appid))
     .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid));
-  const featured = (byRarity.length ? byRarity : s.platinum).slice(0, 3).map((p) => ({
-    appid: p.g.appid,
-    name: p.g.name,
-    rarity: state.rarity.get(p.g.appid) ?? null,
-  }));
-  openShareCard({
+  const rest = (byRarity.length ? byRarity : s.platinum).filter((p) => !state.pins.has(p.g.appid));
+  return {
     player: state.profile.player,
     rank: rankOf(s.platinum.length),
     plats: s.platinum.length,
-    featured,
+    featured: [...pinned, ...rest].slice(0, 3).map((p) => ({
+      appid: p.g.appid,
+      name: p.g.name,
+      rarity: state.rarity.get(p.g.appid) ?? null,
+      pinned: state.pins.has(p.g.appid),
+    })),
     stats: [
       [nf.format(s.unlocked), 'succès débloqués'],
       s.avgCompletion != null ? [`${Math.round(s.avgCompletion)} %`, 'complétion moyenne'] : null,
       state.profile.playtimeHidden ? null : [`${nf.format(Math.round(s.totalMin / 60))} h`, 'de jeu'],
     ].filter(Boolean),
+  };
+}
+
+function shareCard() {
+  const s = compute();
+  // Choix proposés : du plus rare au plus commun, pour retrouver vite ses platines de prestige.
+  const choices = [...s.platinum]
+    .sort((x, y) => (state.rarity.get(x.g.appid) ?? 101) - (state.rarity.get(y.g.appid) ?? 101))
+    .map((p) => ({ appid: p.g.appid, name: p.g.name }));
+  openShareCard(shareCardData(), {
+    choices,
+    maxPins: MAX_PINS,
+    isPinned: (appid) => state.pins.has(appid),
+    onToggle: (appid) => (togglePin(appid) ? shareCardData() : null),
   });
 }
 
@@ -1262,7 +1307,7 @@ function renderPlatinum(s) {
   const feat = $('#platFeature');
 
   // On ne reconstruit la vitrine que si son contenu change, pour ne pas casser les animations en cours.
-  const key = `${state.scan.running}|${s.platinum.map((x) => x.g.appid).join(',')}|${state.rarity.size}|${state.newPlats.size}`;
+  const key = `${state.scan.running}|${s.platinum.map((x) => x.g.appid).join(',')}|${state.rarity.size}|${state.newPlats.size}|${[...state.pins]}`;
   if (key === lastPlatKey) return;
   lastPlatKey = key;
 
@@ -1283,7 +1328,10 @@ function renderPlatinum(s) {
       featureCard('Dernier platine', latest) + (rarest && rarest !== latest ? featureCard('Ton platine le plus rare', rarest) : '');
   }
 
-  el.innerHTML = `<div class="plat-grid">${s.platinum
+  // Platines épinglés en tête, dans l'ordre d'épinglage.
+  const pinRank = (p) => { const i = [...state.pins].indexOf(p.g.appid); return i < 0 ? Infinity : i; };
+  const shelf = [...s.platinum].sort((x, y) => pinRank(x) - pinRank(y));
+  el.innerHTML = `<div class="plat-grid">${shelf
     .map(({ g, date, num }) => {
       const tier = rarityTier(state.rarity.get(g.appid));
       return `
@@ -1295,6 +1343,7 @@ function renderPlatinum(s) {
           <span class="plat-badge" title="Platiné">${icon('trophy')}</span>
           ${rarityPill(g.appid)}
           ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
+          ${state.pins.has(g.appid) ? `<span class="pin-badge" title="Épinglé">${icon('pin')}</span>` : ''}
         </span>
         <span class="meta">${esc(g.name)}</span>
         <span class="sub"><span class="plat-num">n°${num}</span> · ${fmtDate(date)}</span>
@@ -1749,8 +1798,12 @@ modal.addEventListener('click', (e) => {
     const appid = Number(toggle.dataset.appid);
     const g = state.profile.games.find((x) => x.appid === appid);
     const kind = toggle.dataset.mark;
+    if (kind === 'pin') {
+      if (togglePin(appid)) toggle.outerHTML = pinButton(appid);
+      return;
+    }
     const on = !(kind === 'goal' ? state.goals : state.dlcBlocked).has(appid);
-    ({ dlc: state.dlcBlocked, goal: state.goals } = toggleMark(state.steamid, kind, appid));
+    ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } = toggleMark(state.steamid, kind, appid));
     $('#gameNotices').innerHTML = gameNotices(g, statusOf(g));
     update();
     loadNext(state.token);
@@ -1780,7 +1833,8 @@ function certificate(g, a) {
       ${g.playtime ? `<span><b>${fmtHours(g.playtime)}</b>de jeu</span>` : ''}
       <span><b>${a.total}</b>succès</span>
       <span><b>${fmtDate(a.times[0])}</b>premier succès</span>
-    </div>`;
+    </div>
+    <div class="cert-actions">${pinButton(g.appid)}</div>`;
 }
 
 async function openGame(appid) {

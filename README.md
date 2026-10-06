@@ -30,6 +30,7 @@ npm start              # http://localhost:3000
 - **Fiche jeu** : les succès manquants passent en premier, du plus accessible au plus rare.
 - **Salle des trophées** (`#/u/<steamid>/trophees`) : une page plein écran avec une plaque par platine, regroupées par année (numéro, date, durée de la chasse, rareté)
 - **Numéro de platine** chronologique et **certificat de platine** dans la fiche des jeux platinés
+- **Platines épinglés** (3 au maximum) : depuis la fenêtre de la carte de chasseur ou le certificat d'un jeu platiné. Ils passent en tête de la vitrine et sur la carte, complétés par les plus rares.
 - **Carte de chasseur** : une image PNG de 1200×630 (rang, platines, plus rares) à copier dans Discord ou à télécharger
 - Succès débloqués par mois, top 10 du temps de jeu, répartition de la complétion
 - Anecdotes : premier succès, journée record, platine le plus rapide ou le plus long, vieil amour délaissé…

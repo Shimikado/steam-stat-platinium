@@ -49,7 +49,7 @@ async function migrate() {
     create table if not exists user_marks (
       steamid text not null,
       appid integer not null,
-      kind text not null check (kind in ('goal', 'dlc')),
+      kind text not null,
       created_at timestamptz not null default now(),
       primary key (steamid, appid, kind)
     );
@@ -73,6 +73,11 @@ async function migrate() {
       data jsonb not null,
       updated_at timestamptz not null default now()
     );
+  `);
+  // Types de marquages autorisés (la contrainte est recréée pour les bases déjà existantes).
+  await pool.query(`
+    alter table user_marks drop constraint if exists user_marks_kind_check;
+    alter table user_marks add constraint user_marks_kind_check check (kind in ('goal', 'dlc', 'pin'));
   `);
   await cleanup();
   setInterval(cleanup, 12 * 3600 * 1000).unref();
@@ -184,20 +189,31 @@ export async function getAdditions(appids) {
 
 // ---------------------------------------------------------------- marquages & instantanés (par compte)
 
+export const MAX_PINS = 3;
+
 export async function getMarks(steamid) {
-  const { rows } = await pool.query(`select appid, kind from user_marks where steamid = $1`, [steamid]);
-  return {
-    goal: rows.filter((r) => r.kind === 'goal').map((r) => r.appid),
-    dlc: rows.filter((r) => r.kind === 'dlc').map((r) => r.appid),
-  };
+  const { rows } = await pool.query(`select appid, kind from user_marks where steamid = $1 order by created_at`, [steamid]);
+  const of = (kind) => rows.filter((r) => r.kind === kind).map((r) => r.appid);
+  return { goal: of('goal'), dlc: of('dlc'), pin: of('pin') };
 }
 
-/** Active/désactive un marquage. Objectif et DLC s'excluent pour un même jeu. */
+/**
+ * Active/désactive un marquage. Objectif et DLC s'excluent pour un même jeu ;
+ * l'épingle (platine mis en avant) est indépendante, limitée à MAX_PINS.
+ */
 export async function setMark(steamid, appid, kind, on) {
   const client = await pool.connect();
   try {
     await client.query('begin');
-    await client.query(`delete from user_marks where steamid = $1 and appid = $2`, [steamid, appid]);
+    if (kind === 'pin') {
+      await client.query(`delete from user_marks where steamid = $1 and appid = $2 and kind = 'pin'`, [steamid, appid]);
+      if (on) {
+        const { rows } = await client.query(`select count(*)::int as n from user_marks where steamid = $1 and kind = 'pin'`, [steamid]);
+        if (rows[0].n >= MAX_PINS) throw Object.assign(new Error(`${MAX_PINS} platines épinglés au maximum`), { status: 409 });
+      }
+    } else {
+      await client.query(`delete from user_marks where steamid = $1 and appid = $2 and kind <> 'pin'`, [steamid, appid]);
+    }
     if (on) await client.query(`insert into user_marks (steamid, appid, kind) values ($1, $2, $3)`, [steamid, appid, kind]);
     await client.query('commit');
   } catch (err) {
@@ -214,6 +230,7 @@ export async function importMarks(steamid, marks) {
   const rows = [
     ...marks.goal.map((appid) => [appid, 'goal']),
     ...marks.dlc.filter((appid) => !marks.goal.includes(appid)).map((appid) => [appid, 'dlc']),
+    ...marks.pin.slice(0, MAX_PINS).map((appid) => [appid, 'pin']),
   ].slice(0, 2000);
   if (rows.length) {
     const params = [steamid];
@@ -224,7 +241,11 @@ export async function importMarks(steamid, marks) {
     await pool.query(
       `insert into user_marks (steamid, appid, kind)
        select v.steamid, v.appid, v.kind from (values ${values.join(',')}) as v (steamid, appid, kind)
-       where not exists (select 1 from user_marks m where m.steamid = v.steamid and m.appid = v.appid)`,
+       where not exists (
+         select 1 from user_marks m
+         where m.steamid = v.steamid and m.appid = v.appid
+           and (m.kind = v.kind or (m.kind <> 'pin' and v.kind <> 'pin'))
+       )`,
       params,
     );
   }

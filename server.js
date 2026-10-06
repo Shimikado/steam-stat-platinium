@@ -205,14 +205,14 @@ api.get('/marks', async (req, res) => {
 api.put('/marks', express.json({ limit: '4kb' }), async (req, res) => {
   const id = selfId(req);
   const { appid, kind, on } = req.body ?? {};
-  if (!Number.isInteger(appid) || appid <= 0 || !['goal', 'dlc'].includes(kind)) throw new SteamError('Marquage invalide', 400);
+  if (!Number.isInteger(appid) || appid <= 0 || !['goal', 'dlc', 'pin'].includes(kind)) throw new SteamError('Marquage invalide', 400);
   res.json(await setMark(id, appid, kind, Boolean(on)));
 });
 
 api.post('/marks/import', express.json({ limit: '64kb' }), async (req, res) => {
   const id = selfId(req);
   const clean = (list) => (Array.isArray(list) ? list.filter((n) => Number.isInteger(n) && n > 0) : []);
-  res.json(await importMarks(id, { goal: clean(req.body?.goal), dlc: clean(req.body?.dlc) }));
+  res.json(await importMarks(id, { goal: clean(req.body?.goal), dlc: clean(req.body?.dlc), pin: clean(req.body?.pin) }));
 });
 
 api.get('/snapshot', async (req, res) => {
@@ -318,7 +318,7 @@ if (DEMO) {
 app.use('/api', api);
 
 app.use((err, req, res, _next) => {
-  const status = err instanceof SteamError ? err.status : 500;
+  const status = err instanceof SteamError ? err.status : Number.isInteger(err.status) ? err.status : 500;
   if (status >= 500) console.error(err);
   res.status(status).json({ error: err.message || 'Erreur interne' });
 });

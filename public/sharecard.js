@@ -1,5 +1,5 @@
 import { artUrls } from './art.js';
-import { esc, icon, nf, fmtRarity, rarityTier } from './utils.js';
+import { esc, icon, nf, fmtRarity, rarityTier, artImg } from './utils.js';
 
 // Carte de chasseur partageable (PNG 1200×630, le format des aperçus Discord/Twitter).
 
@@ -158,7 +158,11 @@ async function drawCard({ player, rank, plats, stats, featured }) {
     ctx.fillStyle = '#bdb0b4';
     ctx.font = '700 15px Inter, sans-serif';
     ctx.letterSpacing = '2px';
-    ctx.fillText(featured.some((f) => f.rarity != null) ? 'MES PLATINES LES PLUS RARES' : 'MES DERNIERS PLATINES', 690, 92);
+    ctx.fillText(featured.some((f) => f.pinned)
+        ? 'MES PLATINES À L’HONNEUR'
+        : featured.some((f) => f.rarity != null)
+          ? 'MES PLATINES LES PLUS RARES'
+          : 'MES DERNIERS PLATINES', 690, 92);
     ctx.letterSpacing = '0px';
 
     const cw = 150;
@@ -219,7 +223,12 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   return canvas;
 }
 
-export async function openShareCard(data) {
+/**
+ * Ouvre la carte de chasseur.
+ * data : contenu de la carte ; pick (facultatif) : sélection des platines épinglés
+ *   { choices: [{ appid, name }], isPinned(appid), onToggle(appid) → nouvelles data, maxPins }
+ */
+export async function openShareCard(data, pick = null) {
   const dialog = document.createElement('dialog');
   dialog.className = 'modal share-modal';
   dialog.innerHTML = `
@@ -227,34 +236,93 @@ export async function openShareCard(data) {
       <h2>Ta carte de chasseur</h2>
       <button class="modal-close" type="button" aria-label="Fermer">${icon('close')}</button>
     </div>
-    <div class="share-preview"><div class="loading" style="min-height:240px"><div class="spinner"></div></div></div>
+    <div class="share-scroll">
+      <div class="share-preview"><div class="loading" style="min-height:240px"><div class="spinner"></div></div></div>
+      ${
+        pick?.choices.length
+          ? `<div class="share-pick">
+              <p class="share-pick-title">${icon('pin')} Épingle jusqu’à ${pick.maxPins} platines à mettre en avant</p>
+              <input class="input share-pick-filter" type="search" placeholder="Filtrer…" aria-label="Filtrer les platines">
+              <div class="pick-grid"></div>
+            </div>`
+          : ''
+      }
+    </div>
     <div class="share-actions">
       <button class="btn btn-primary" type="button" data-action="copy" disabled>Copier l’image</button>
       <button class="btn" type="button" data-action="download" disabled>Télécharger le PNG</button>
       <span class="share-status" role="status"></span>
     </div>`;
   document.body.append(dialog);
-  dialog.addEventListener('close', () => dialog.remove());
   dialog.addEventListener('click', (e) => {
     if (e.target === dialog || e.target.closest('.modal-close')) dialog.close();
   });
   dialog.showModal();
 
   const status = dialog.querySelector('.share-status');
-  let blob;
-  try {
-    const canvas = await drawCard(data);
-    blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
-    const url = URL.createObjectURL(blob);
-    dialog.querySelector('.share-preview').innerHTML = `<img src="${url}" alt="Carte de chasseur de ${esc(data.player.name)}">`;
-    dialog.addEventListener('close', () => URL.revokeObjectURL(url));
-    for (const b of dialog.querySelectorAll('[data-action]')) b.disabled = false;
-  } catch (err) {
-    dialog.querySelector('.share-preview').innerHTML = `<p class="empty">Impossible de générer la carte (${esc(err.message)}).</p>`;
-    return;
+  const preview = dialog.querySelector('.share-preview');
+  let blob = null;
+  let url = null;
+  let drawId = 0;
+  dialog.addEventListener('close', () => {
+    if (url) URL.revokeObjectURL(url);
+    dialog.remove();
+  });
+
+  async function redraw() {
+    const id = ++drawId;
+    try {
+      const canvas = await drawCard(data);
+      const next = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+      if (id !== drawId) return; // un dessin plus récent a été demandé entre-temps
+      if (url) URL.revokeObjectURL(url);
+      blob = next;
+      url = URL.createObjectURL(blob);
+      preview.innerHTML = `<img src="${url}" alt="Carte de chasseur de ${esc(data.player.name)}">`;
+      for (const b of dialog.querySelectorAll('[data-action]')) b.disabled = false;
+    } catch (err) {
+      preview.innerHTML = `<p class="empty">Impossible de générer la carte (${esc(err.message)}).</p>`;
+    }
   }
 
+  // Sélecteur : épinglés d'abord, puis le reste (dans l'ordre fourni).
+  const grid = dialog.querySelector('.pick-grid');
+  const filter = dialog.querySelector('.share-pick-filter');
+  function renderPick() {
+    if (!grid) return;
+    const q = filter.value.trim().toLocaleLowerCase('fr');
+    const list = pick.choices
+      .filter((c) => !q || c.name.toLocaleLowerCase('fr').includes(q))
+      .sort((x, y) => Number(pick.isPinned(y.appid)) - Number(pick.isPinned(x.appid)));
+    grid.innerHTML = list
+      .map(
+        (c) => `
+        <button class="pick-item" type="button" data-pick="${c.appid}" aria-pressed="${pick.isPinned(c.appid)}" title="${esc(c.name)}">
+          <span class="art" data-name="${esc(c.name)}">${artImg(c.appid, ['header.jpg'], c.name)}</span>
+          <span class="pick-name">${esc(c.name)}</span>
+          <span class="pick-check" aria-hidden="true">${icon('pin')}</span>
+        </button>`,
+      )
+      .join('');
+  }
+  if (grid) {
+    renderPick();
+    filter.addEventListener('input', renderPick);
+    grid.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-pick]');
+      if (!item) return;
+      const next = pick.onToggle(Number(item.dataset.pick));
+      if (!next) return; // limite atteinte : l'app affiche déjà un message
+      data = next;
+      renderPick();
+      redraw();
+    });
+  }
+
+  await redraw();
+
   dialog.querySelector('[data-action="download"]').onclick = () => {
+    if (!blob) return;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `carte-chasseur-${data.player.name.replace(/[^\w-]+/g, '_')}.png`;
