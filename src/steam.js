@@ -266,6 +266,53 @@ async function getGlobalPercentages(appid) {
   return map;
 }
 
+// ---------------------------------------------------------------- visuels des jeux
+
+const STORE_ASSETS = 'https://shared.akamai.steamstatic.com/store_item_assets/';
+const artCache = new TtlCache({ ttlMs: 7 * 24 * HOUR, ns: 'art' });
+
+/**
+ * Vraies adresses des visuels d'un jeu. Depuis 2024, Steam range ceux des jeux récents sous un
+ * identifiant (…/apps/<id>/<hash>/header.jpg) et certains fichiers ont des noms inattendus
+ * (portrait.png…) : on les demande donc au magasin plutôt que de les deviner.
+ * Renvoie { appid: { header, capsule, hero } | null }.
+ */
+export async function getArt(appids) {
+  const out = {};
+  const missing = [];
+  for (const appid of appids) {
+    const cached = await artCache.get(appid);
+    if (cached === undefined) missing.push(appid);
+    else out[appid] = cached;
+  }
+
+  for (let i = 0; i < missing.length; i += 50) {
+    const ids = missing.slice(i, i + 50);
+    const input = {
+      ids: ids.map((appid) => ({ appid })),
+      context: { language: 'french', country_code: 'FR' },
+      data_request: { include_assets: true },
+    };
+    let items = [];
+    try {
+      const url = `${API}/IStoreBrowseService/GetItems/v1/?input_json=${encodeURIComponent(JSON.stringify(input))}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      items = (await res.json())?.response?.store_items ?? [];
+    } catch {
+      continue; // magasin injoignable : on réessaiera plus tard (rien n'est mis en cache)
+    }
+    const byId = new Map(items.map((it) => [it.appid, it]));
+    for (const appid of ids) {
+      const a = byId.get(appid)?.assets;
+      const make = (file) => (a?.asset_url_format && file ? STORE_ASSETS + a.asset_url_format.replace('${FILENAME}', file) : null);
+      const art = a ? { header: make(a.header), capsule: make(a.library_capsule), hero: make(a.library_hero) } : null;
+      out[appid] = art;
+      artCache.set(appid, art);
+    }
+  }
+  return out;
+}
+
 /**
  * Résumé d'un profil (nombre de platines, dernier, plus rare) calculé uniquement à partir du cache :
  * aucun appel à Steam. Renvoie null si la bibliothèque n'a pas été (assez) analysée.

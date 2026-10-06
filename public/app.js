@@ -29,6 +29,7 @@ import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
 import { loadMarks, saveMarks, toggleMark } from './marks.js';
 import { applyAmbient, restoreAmbient, updateAmbient } from './ambient.js';
+import { installArtFallback, preloadArt, registerIcons } from './art.js';
 
 const app = $('#app');
 const SCAN_BATCH = 25;
@@ -36,21 +37,7 @@ const LIB_PAGE = 60;
 
 const playLabel = (g) => (g.playtime ? fmtHours(g.playtime) : state.profile?.playtimeHidden ? 'Temps masqué' : 'Jamais lancé');
 
-document.addEventListener(
-  'error',
-  (e) => {
-    const img = e.target;
-    if (!(img instanceof HTMLImageElement) || img.dataset.fallback === undefined) return;
-    const rest = img.dataset.fallback.split('|').filter(Boolean);
-    if (rest.length) {
-      img.dataset.fallback = rest.slice(1).join('|');
-      img.src = rest[0];
-    } else {
-      img.classList.add('broken');
-    }
-  },
-  true,
-);
+installArtFallback();
 
 // ---------------------------------------------------------------- état
 
@@ -338,6 +325,8 @@ async function loadProfile(steamid, { refresh = false } = {}) {
     return;
   }
 
+  registerIcons(profile.games);
+  preloadArt(profile.games.map((g) => g.appid));
   renderDashboard();
   // Ambiance : celle mémorisée pour ce profil, sinon le jeu le plus joué en attendant l'analyse.
   const saved = restoreAmbient(steamid);

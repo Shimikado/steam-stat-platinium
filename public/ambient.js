@@ -1,4 +1,4 @@
-import { ART_HOSTS } from './utils.js';
+import { artUrls } from './art.js';
 import { setBackdropColor } from './backdrop.js';
 
 // Ambiance du profil : la couleur dominante d'un visuel de jeu teinte le fond procédural de la page.
@@ -84,7 +84,7 @@ function dominantColor(img) {
 export async function ambientColor(appid) {
   const cache = readCache();
   if (cache[appid]) return cache[appid];
-  const urls = ['header.jpg', 'library_hero.jpg'].flatMap((f) => ART_HOSTS.map((h) => `${h}/${appid}/${f}`));
+  const urls = artUrls(appid, ['header.jpg', 'library_hero.jpg']);
   const img = await loadImage(urls);
   if (!img) return null;
   let color;

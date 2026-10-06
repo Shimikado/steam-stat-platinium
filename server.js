@@ -6,6 +6,7 @@ import {
   SteamError,
   computeSummary,
   getAchievementSummaries,
+  getArt,
   getFriends,
   getGameAchievements,
   getDifficulties,
@@ -271,6 +272,15 @@ api.get('/img', async (req, res) => {
   const buf = Buffer.from(await upstream.arrayBuffer());
   if (buf.length > 8 * 1024 * 1024) return res.status(413).end();
   res.set({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' }).send(buf);
+});
+
+api.get('/art', async (req, res) => {
+  const appids = String(req.query.appids ?? '')
+    .split(',')
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, 250);
+  res.set('Cache-Control', 'public, max-age=86400').json(await getArt(appids));
 });
 
 api.get('/friends/:steamid', async (req, res) => {

@@ -6,10 +6,7 @@ export const dateFmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month:
 export const monthFmt = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' });
 export const monthShort = new Intl.DateTimeFormat('fr-FR', { month: 'short' });
 
-export const ART_HOSTS = [
-  'https://cdn.cloudflare.steamstatic.com/steam/apps',
-  'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps',
-];
+export { ART_HOSTS, artImg } from './art.js';
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -32,12 +29,6 @@ export async function getJSON(url) {
   return data;
 }
 
-/** <img> avec une chaîne d'URLs de repli (les assets Steam récents n'existent pas toujours sur l'ancien CDN). */
-export function artImg(appid, files, alt) {
-  const urls = files.flatMap((f) => ART_HOSTS.map((h) => `${h}/${appid}/${f}`));
-  const [first, ...rest] = urls;
-  return `<img src="${first}" data-fallback="${rest.join('|')}" alt="${esc(alt)}" loading="lazy" decoding="async">`;
-}
 
 export const gameIconUrl = (g) =>
   g.icon ? `https://media.steampowered.com/steamcommunity/public/images/apps/${g.appid}/${g.icon}.jpg` : '';

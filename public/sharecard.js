@@ -1,4 +1,5 @@
-import { ART_HOSTS, esc, icon, nf, fmtRarity, rarityTier } from './utils.js';
+import { artUrls } from './art.js';
+import { esc, icon, nf, fmtRarity, rarityTier } from './utils.js';
 
 // Carte de chasseur partageable (PNG 1200×630, le format des aperçus Discord/Twitter).
 
@@ -33,8 +34,7 @@ function loadImage(urls) {
   });
 }
 
-const capsuleUrls = (appid) =>
-  ['library_600x900.jpg', 'header.jpg'].flatMap((f) => ART_HOSTS.map((h) => `${h}/${appid}/${f}`));
+const capsuleUrls = (appid) => artUrls(appid, ['library_600x900.jpg', 'header.jpg']);
 
 function gradient(ctx, x0, y0, x1, y1, colors) {
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
