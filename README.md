@@ -17,7 +17,7 @@ npm start              # http://localhost:3000
 ## Ce que ça affiche
 
 - **Rang de chasseur** selon le nombre de platines : Recrue, Bronze (1), Argent (5), Or (15), Platine (30), Diamant (60), Légende (100)
-- **Amis** : liste cliquable avec leur statut (en ligne, en jeu) pour ouvrir leur vitrine. Il faut que la liste d'amis soit publique.
+- **Amis** : sur ton propre profil, une fois connecté (jamais sur celui des autres), liste cliquable avec leur statut (en ligne, en jeu) pour ouvrir leur vitrine. Il faut que la liste d'amis soit publique.
 - **Recherche** de n'importe quel profil public depuis la barre du haut
 - Temps de jeu total, jeux possédés, jamais lancés, 2 dernières semaines, temps sur Steam Deck
 - **Vitrine des platines** : bannières « Dernier platine » et « Platine le plus rare », cartes holographiques et rareté de chaque platine. La rareté est une borne haute : on prend le succès le plus rare du jeu, d'après les statistiques mondiales de Steam.

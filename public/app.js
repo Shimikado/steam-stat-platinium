@@ -331,7 +331,8 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   // Ambiance : celle mémorisée pour ce profil, sinon le jeu le plus joué en attendant l'analyse.
   const saved = restoreAmbient(steamid);
   setAmbient(saved?.appid ?? [...profile.games].sort((a, b) => b.playtime - a.playtime)[0]?.appid);
-  loadFriends(token);
+  // Les amis ne s'affichent que sur son propre profil, une fois connecté.
+  if (state.me && steamid === state.me) loadFriends(token);
   if (ownSynced()) syncMarks(token);
   scanAchievements(token, refresh);
 }

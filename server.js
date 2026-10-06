@@ -288,8 +288,11 @@ api.get('/art', async (req, res) => {
   res.set('Cache-Control', 'public, max-age=86400').json(await getArt(appids));
 });
 
+// Liste d'amis : réservée au compte connecté, pour son propre profil.
 api.get('/friends/:steamid', async (req, res) => {
-  res.json(await getFriends(steamidParam(req)));
+  const id = steamidParam(req);
+  if (req.session?.steamid !== id) throw new SteamError('Liste d’amis réservée à ton propre profil', 403);
+  res.json(await getFriends(id));
 });
 
 api.get('/difficulty/:steamid', async (req, res) => {
