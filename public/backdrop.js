@@ -19,9 +19,9 @@ let target = null;
 // Chaque tache suit une courbe de Lissajous lente : position, rayon et phase propres.
 const BLOBS = [
   { x: 0.82, y: 0.08, ax: 0.1, ay: 0.08, fx: 0.031, fy: 0.023, r: 0.62, alpha: 0.26 },
-  { x: 0.12, y: 0.22, ax: 0.09, ay: 0.12, fx: 0.019, fy: 0.027, r: 0.55, alpha: 0.18 },
-  { x: 0.55, y: 0.78, ax: 0.16, ay: 0.07, fx: 0.023, fy: 0.017, r: 0.7, alpha: 0.13 },
-  { x: 0.95, y: 0.6, ax: 0.07, ay: 0.14, fx: 0.029, fy: 0.021, r: 0.45, alpha: 0.12 },
+  { x: 0.12, y: 0.22, ax: 0.09, ay: 0.12, fx: 0.019, fy: 0.027, r: 0.55, alpha: 0.21 },
+  { x: 0.55, y: 0.78, ax: 0.16, ay: 0.07, fx: 0.023, fy: 0.017, r: 0.7, alpha: 0.17 },
+  { x: 0.95, y: 0.6, ax: 0.07, ay: 0.14, fx: 0.029, fy: 0.021, r: 0.45, alpha: 0.1 },
 ];
 
 function hsl(h, s, l) {
@@ -57,6 +57,24 @@ function paletteFrom(rgb) {
     hsl(wrap(h + 0.09), Math.min(0.75, s * 0.85), 0.45),
     hsl(wrap(h + 0.5), 0.35, 0.4), // touche complémentaire, très discrète
   ];
+}
+
+/** Ramène une couleur source à une teinte qui rend bien en lueur sur fond sombre. */
+function glow(rgb, l) {
+  const [h, s] = toHsl(rgb);
+  return hsl(h, Math.max(0.5, Math.min(0.85, s)), l);
+}
+
+/**
+ * Palette des 4 lueurs à partir de 1 à 3 couleurs (ex. les platines épinglés) :
+ * une lueur par couleur, la dernière mêle discrètement les deux premières.
+ */
+function paletteFromMany(colors) {
+  if (colors.length < 2) return paletteFrom(colors[0]);
+  const [a, b, c] = colors;
+  const mix = a.map((v, i) => (v + b[i]) / 2);
+  const [h, s] = toHsl(mix);
+  return [glow(a, 0.55), glow(b, 0.5), c ? glow(c, 0.47) : paletteFrom(a)[2], hsl(h, Math.min(0.45, s), 0.4)];
 }
 
 function resize() {
@@ -118,14 +136,14 @@ function play() {
   raf = requestAnimationFrame(loop);
 }
 
-export function startBackdrop(rgb) {
+export function startBackdrop(colors) {
   if (canvas) return;
   canvas = document.createElement('canvas');
   canvas.className = 'backdrop';
   canvas.setAttribute('aria-hidden', 'true');
   document.body.prepend(canvas);
   ctx = canvas.getContext('2d');
-  current = paletteFrom(rgb);
+  current = paletteFromMany(colors);
   resize();
   window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', play);
@@ -133,9 +151,11 @@ export function startBackdrop(rgb) {
   play();
 }
 
-export function setBackdropColor(rgb) {
-  if (!canvas) return startBackdrop(rgb);
-  target = paletteFrom(rgb);
+/** Change les couleurs du fond (1 à 3 couleurs), avec un fondu vers la nouvelle palette. */
+export function setBackdropColors(colors) {
+  if (!colors?.length) return;
+  if (!canvas) return startBackdrop(colors);
+  target = paletteFromMany(colors);
   // Avec les animations réduites, pas de boucle : on applique directement.
   if (reduceMotion.matches || document.hidden) {
     current = target;

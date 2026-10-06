@@ -229,16 +229,32 @@ function renderTopbar(viewing) {
 
 // ---------------------------------------------------------------- accueil
 
-/** Teinte le fond de la page avec la couleur dominante d'un jeu (dernier platine ou jeu le plus joué). */
-let ambientAppid = null;
-function setAmbient(appid) {
-  if (!appid || appid === ambientAppid) return;
-  ambientAppid = appid;
-  updateAmbient(state.steamid, appid);
+/** Teinte le fond de la page avec les couleurs de 1 à 3 jeux (voir ambientSources). */
+let ambientKey = '';
+function setAmbient(appids) {
+  const ids = [...new Set(appids.filter(Boolean))].slice(0, 3);
+  const key = ids.join(',');
+  if (!ids.length || key === ambientKey) return;
+  ambientKey = key;
+  updateAmbient(state.steamid, ids);
+}
+
+/**
+ * Jeux qui donnent leurs couleurs au fond : les platines épinglés d'abord,
+ * complétés par le dernier platine, le plus rare, puis le jeu le plus joué.
+ */
+function ambientSources() {
+  const plats = compute().platinum;
+  const isPlat = new Set(plats.map((p) => p.g.appid));
+  const rarest = plats
+    .filter((p) => state.rarity.has(p.g.appid))
+    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+  const mostPlayed = [...state.profile.games].sort((a, b) => b.playtime - a.playtime)[0];
+  return [...[...state.pins].filter((id) => isPlat.has(id)), plats[0]?.g.appid, rarest?.g.appid, mostPlayed?.appid];
 }
 
 function renderLanding() {
-  ambientAppid = null;
+  ambientKey = '';
   applyAmbient(null);
   app.innerHTML = `
     <section class="landing">
@@ -331,7 +347,8 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   renderDashboard();
   // Ambiance : celle mémorisée pour ce profil, sinon le jeu le plus joué en attendant l'analyse.
   const saved = restoreAmbient(steamid);
-  setAmbient(saved?.appid ?? [...profile.games].sort((a, b) => b.playtime - a.playtime)[0]?.appid);
+  if (saved?.appids?.length) ambientKey = saved.appids.join(',');
+  else setAmbient([[...profile.games].sort((a, b) => b.playtime - a.playtime)[0]?.appid]);
   // Les amis ne s'affichent que sur son propre profil, une fois connecté.
   if (state.me && steamid === state.me) loadFriends(token);
   if (ownSynced()) syncMarks(token);
@@ -367,9 +384,9 @@ async function scanAchievements(token, refresh) {
   await detectAddedAchievements();
   if (token !== state.token) return;
   update();
-  setAmbient(compute().platinum[0]?.g.appid);
   await loadDifficulty(token);
   if (token !== state.token) return;
+  setAmbient(ambientSources());
   publishSummary(token);
   if (token !== state.token) return;
   await loadNext(token);
@@ -404,7 +421,6 @@ function renderNotice(title, text, action = '') {
 function renderDashboard() {
   const { player } = state.profile;
 
-  ambientAppid = null;
   app.innerHTML = `
     <section class="profile">
       <div class="avatar-wrap" id="avatarWrap"><img class="avatar" src="${esc(player.avatar)}" alt=""></div>
@@ -945,6 +961,7 @@ function applyMarks(marks) {
   state.pins = new Set(marks.pin ?? []);
   saveMarks(state.steamid, marks);
   update();
+  if (!state.scan.running && !state.diffScan.running) setAmbient(ambientSources());
 }
 
 // ---------------------------------------------------------------- succès ajoutés par des mises à jour
@@ -1060,6 +1077,7 @@ function togglePin(appid) {
   }
   ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } = marks);
   update();
+  if (!state.scan.running) setAmbient(ambientSources());
   if (ownSynced()) {
     sendJSON('/api/marks', 'PUT', { appid, kind: 'pin', on })
       .then(applyMarks)

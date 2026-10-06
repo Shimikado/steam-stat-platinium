@@ -1,7 +1,8 @@
 import { artUrls } from './art.js';
-import { setBackdropColor } from './backdrop.js';
+import { setBackdropColors } from './backdrop.js';
 
-// Ambiance du profil : la couleur dominante d'un visuel de jeu teinte le fond procédural de la page.
+// Ambiance du profil : les couleurs dominantes de 1 à 3 jeux (platines épinglés en priorité)
+// teintent le fond procédural de la page.
 
 const CACHE_KEY = 'steam-stats:ambient:v1'; // appid -> [r, g, b]
 const DEFAULT = [255, 128, 92];
@@ -102,35 +103,42 @@ export async function ambientColor(appid) {
   return color;
 }
 
-export function applyAmbient(color) {
-  const [r, g, b] = color ?? DEFAULT;
+/** Applique 1 à 3 couleurs au fond (couleur par défaut si aucune). */
+export function applyAmbient(colors) {
+  const list = colors?.length ? colors : [DEFAULT];
+  const [r, g, b] = list[0];
   document.documentElement.style.setProperty('--ambient-rgb', `${r} ${g} ${b}`);
-  setBackdropColor([r, g, b]);
+  setBackdropColors(list);
 }
 
 // Dernière ambiance de chaque profil, pour l'appliquer dès l'ouverture sans changement visible ensuite.
-const PROFILE_KEY = 'steam-stats:ambient-profile:v1'; // steamid -> { appid, color }
+const PROFILE_KEY = 'steam-stats:ambient-profile:v1'; // steamid -> { appids, colors }
 
 export function restoreAmbient(steamid) {
   try {
     const saved = JSON.parse(localStorage.getItem(PROFILE_KEY))?.[steamid];
-    if (saved) applyAmbient(saved.color);
-    return saved ?? null;
+    if (!saved) return null;
+    // Ancien format : une seule couleur.
+    const colors = saved.colors ?? (saved.color ? [saved.color] : []);
+    const appids = saved.appids ?? (saved.appid ? [saved.appid] : []);
+    applyAmbient(colors);
+    return { appids, colors };
   } catch {
     return null;
   }
 }
 
-export async function updateAmbient(steamid, appid) {
-  const color = await ambientColor(appid);
-  if (!color) return null;
-  applyAmbient(color);
+/** Calcule les couleurs de ces jeux, les applique et les mémorise pour ce profil. */
+export async function updateAmbient(steamid, appids) {
+  const colors = (await Promise.all(appids.map((id) => ambientColor(id).catch(() => null)))).filter(Boolean);
+  if (!colors.length) return null;
+  applyAmbient(colors);
   try {
     const all = JSON.parse(localStorage.getItem(PROFILE_KEY)) ?? {};
-    all[steamid] = { appid, color };
+    all[steamid] = { appids, colors };
     localStorage.setItem(PROFILE_KEY, JSON.stringify(all));
   } catch {
     // facultatif
   }
-  return color;
+  return colors;
 }
