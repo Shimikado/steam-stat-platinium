@@ -1717,6 +1717,32 @@ function gameCard(g) {
 const modal = $('#gameModal');
 modal.addEventListener('click', (e) => {
   if (e.target === modal || e.target.closest('.modal-close')) modal.close();
+  // Copie du nom anglais d'un succès, pour le rechercher sur internet.
+  const copy = e.target.closest('[data-copy]');
+  if (copy) {
+    const done = () => {
+      copy.classList.add('is-copied');
+      setTimeout(() => copy.classList.remove('is-copied'), 1200);
+    };
+    // Méthode de secours si l'API presse-papiers est refusée par le navigateur.
+    const legacy = () => {
+      const ta = document.createElement('textarea');
+      ta.value = copy.dataset.copy;
+      ta.style.cssText = 'position:fixed;opacity:0';
+      modal.append(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) return done();
+      // Copie impossible ici : on sélectionne le nom pour un Ctrl+C manuel.
+      const range = document.createRange();
+      range.selectNodeContents(copy);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    };
+    if (navigator.clipboard) navigator.clipboard.writeText(copy.dataset.copy).then(done, legacy);
+    else legacy();
+  }
   const toggle = e.target.closest('[data-mark]');
   if (toggle) {
     const appid = Number(toggle.dataset.appid);
@@ -1856,7 +1882,11 @@ function renderAchievements(list, isPlatinum) {
       <div class="ach ${x.achieved ? '' : 'locked todo'}">
         ${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy">` : `<span class="ach-icon">${icon('lock')}</span>`}
         <div style="min-width:0">
-          <div class="ach-name">${esc(x.name)}</div>
+          <div class="ach-name">${esc(x.name)}${
+            x.nameEn
+              ? `<button class="ach-en" type="button" data-copy="${esc(x.nameEn)}" title="Nom original en anglais · cliquer pour copier">${esc(x.nameEn)}</button>`
+              : ''
+          }</div>
           <div class="ach-desc">${secret ? '<em>Succès caché</em>' : esc(x.description)}</div>
         </div>
         <div class="ach-side">

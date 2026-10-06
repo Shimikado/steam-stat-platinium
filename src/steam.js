@@ -266,12 +266,13 @@ export async function getAchievementSummaries(steamid, appids, { refresh = false
   return results;
 }
 
-async function getSchema(appid) {
-  const key = `${appid}:french`;
+/** Liste des succès d'un jeu (noms, descriptions, icônes) dans une langue donnée. */
+async function getSchema(appid, lang = 'french') {
+  const key = `${appid}:${lang}`;
   const cached = await caches.schema.get(key);
   if (cached !== undefined) return cached;
 
-  const { body } = await call('/ISteamUserStats/GetSchemaForGame/v2/', { appid, l: 'french' }, { allowError: true });
+  const { body } = await call('/ISteamUserStats/GetSchemaForGame/v2/', { appid, l: lang }, { allowError: true });
   const list = body?.game?.availableGameStats?.achievements ?? [];
   const schema = Object.fromEntries(
     list.map((a) => [
@@ -410,18 +411,22 @@ export async function getDifficulties(steamid, appids) {
 }
 
 export async function getGameAchievements(steamid, appid) {
-  const [list, schema, global] = await Promise.all([
+  const [list, schema, schemaEn, global] = await Promise.all([
     getPlayerAchievementList(steamid, appid),
     getSchema(appid).catch(() => ({})),
+    // Nom original anglais, pratique pour chercher un succès sur internet.
+    getSchema(appid, 'english').catch(() => ({})),
     getGlobalPercentages(appid).catch(() => ({})),
   ]);
   if (!list) return { appid, achievements: [] };
 
   const achievements = list.map(([apiname, achieved, unlocktime]) => {
     const s = schema[apiname] ?? {};
+    const en = schemaEn[apiname]?.name;
     return {
       id: apiname,
       name: s.name ?? apiname,
+      nameEn: en && en !== s.name ? en : null,
       description: s.description ?? '',
       icon: achieved === 1 ? s.icon : s.iconGray ?? s.icon,
       hidden: s.hidden ?? false,

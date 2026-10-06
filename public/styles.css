@@ -2040,6 +2040,33 @@ main {
   font-size: 14px;
 }
 
+/* Nom original anglais : discret, cliquable pour le copier */
+.ach-en {
+  margin-left: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  font-style: italic;
+  cursor: copy;
+  opacity: 0.75;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.ach-en:hover {
+  color: var(--text-2);
+  opacity: 1;
+}
+
+.ach-en.is-copied::after {
+  content: ' · copié';
+  font-style: normal;
+  color: var(--accent);
+}
+
 .ach-desc {
   color: var(--text-2);
   font-size: 13px;

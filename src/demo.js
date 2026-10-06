@@ -76,6 +76,7 @@ function demoAchievements(g) {
   return Array.from({ length: g._ach.total }, (_, i) => ({
     id: `ACH_${i}`,
     name: `Succès n°${i + 1}`,
+    nameEn: `Achievement #${i + 1}`,
     description: 'Description fictive du succès en mode démo.',
     icon: null,
     hidden: rand() < 0.1,
