@@ -16,6 +16,7 @@ import {
   artImg,
   gameIconUrl,
   rarityTier,
+  rarityHalo,
   fmtRarity,
   DIFFICULTY_TIERS,
   difficultyTier,
@@ -1382,9 +1383,8 @@ function featureCard(label, { g, a, date, num }) {
  * Renvoie une Map appid -> 'rare-1' (≤ 1 %) | 'rare-2' (≤ 5 %) | 'rare-3' (≤ 20 %) | 'rare-4'.
  */
 function rarityHighlights(s) {
-  const tier = (pct) => (pct <= 1 ? 'rare-1' : pct <= 5 ? 'rare-2' : pct <= 20 ? 'rare-3' : 'rare-4');
   return new Map(
-    s.platinum.filter((p) => state.rarity.has(p.g.appid)).map((p) => [p.g.appid, tier(state.rarity.get(p.g.appid))]),
+    s.platinum.filter((p) => state.rarity.has(p.g.appid)).map((p) => [p.g.appid, rarityHalo(state.rarity.get(p.g.appid))]),
   );
 }
 

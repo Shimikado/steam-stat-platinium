@@ -35,6 +35,12 @@ export const gameIconUrl = (g) =>
 
 
 /** Tranches de rareté d'un platine, d'après le % maximum de joueurs l'ayant obtenu. */
+/** Palier du halo de rareté (couleur et intensité, voir rustic.css) : 'rare-1' (≤ 1 %) … 'rare-4'. */
+export function rarityHalo(p) {
+  if (p == null) return '';
+  return p <= 1 ? 'rare-1' : p <= 5 ? 'rare-2' : p <= 20 ? 'rare-3' : 'rare-4';
+}
+
 export function rarityTier(p) {
   if (p == null) return null;
   if (p <= 5) return { id: 'ultra', label: 'Ultra rare' };

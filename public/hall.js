@@ -1,6 +1,7 @@
-import { esc, icon, nf, artImg, boxHTML, fmtDate, fmtHours, fmtDuration, fmtRarity, rarityTier } from './utils.js';
+import { esc, icon, nf, boxHTML, fmtDate, fmtHours, fmtDuration, fmtRarity, rarityHalo } from './utils.js';
 
-// Salle des trophées : une page plein écran où chaque platine a sa plaque, regroupées par année.
+// Salle des trophées : une page plein écran sous la lampe, avec une vitrine éclairée par année
+// où chaque platine est exposé en grand, avec son cartel comme dans un musée.
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const SPARKS = [
@@ -13,32 +14,35 @@ const medal = (cls = '') => `
     ${SPARKS.map(([x, y, d]) => `<i style="--x:${x}px;--y:${y}px;animation-delay:${d}s">${icon('sparkle')}</i>`).join('')}
   </span>`;
 
-function plaque(p, i, { rarity, pill }) {
+function exhibit(p, i, { rarity, pill }) {
   const { g, a, date, num, hunt } = p;
-  const tier = rarityTier(rarity.get(g.appid));
+  const meta = [g.playtime ? `${fmtHours(g.playtime)} de jeu` : '', `${fmtDuration(hunt)} de chasse`, `${a.total} succès`]
+    .filter(Boolean)
+    .join(' · ');
   return `
-    <button class="plaque ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button" style="--i:${i}">
-      <span class="plaque-bg art" data-name="">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], '')}</span>
-      <span class="plaque-box">${boxHTML(g.appid, g.name)}</span>
-      <span class="plaque-body">
-        <span class="plaque-num">${icon('trophy')} Platine n°${num}</span>
-        <span class="plaque-title">${esc(g.name)}</span>
-        <span class="plaque-stats">
-          <span><b>${fmtDate(date)}</b>obtenu le</span>
-          <span><b>${fmtDuration(hunt)}</b>de chasse</span>
-          ${g.playtime ? `<span><b>${fmtHours(g.playtime)}</b>de jeu</span>` : ''}
-          <span><b>${a.total}</b>succès</span>
-        </span>
-        ${pill(g.appid, { long: true })}
+    <button class="exhibit ${rarityHalo(rarity.get(g.appid))}" data-appid="${g.appid}" type="button" style="--i:${i}" aria-label="${esc(g.name)}">
+      <span class="exhibit-stage">
+        <span class="exhibit-light" aria-hidden="true"></span>
+        ${boxHTML(g.appid, g.name)}
       </span>
+      <span class="exhibit-label">
+        <span class="exhibit-num">Platine n°${num}</span>
+        <span class="exhibit-title">${esc(g.name)}</span>
+        <span class="exhibit-date">${fmtDate(date)}</span>
+        <span class="exhibit-meta">${meta}</span>
+      </span>
+      ${pill(g.appid)}
     </button>`;
 }
+
+const LAMP =
+  '<div class="lamp hall-lamp" aria-hidden="true"><div class="lamp-cone"><div class="lamp-beam"></div></div><div class="lamp-bulb"></div></div>';
 
 export function hallHTML({ steamid, player, platinum, rarity, pill, scanning }) {
   const back = `<div class="hall-top"><a class="btn" href="#/u/${steamid}">← Retour au profil</a></div>`;
 
   if (scanning) {
-    return `${back}
+    return `${LAMP}${back}
       <header class="hall-hero">
         ${medal('is-waiting')}
         <p class="hall-eyebrow">Salle des trophées</p>
@@ -48,7 +52,7 @@ export function hallHTML({ steamid, player, platinum, rarity, pill, scanning }) 
   }
 
   if (!platinum.length) {
-    return `${back}
+    return `${LAMP}${back}
       <header class="hall-hero">
         ${medal('is-empty')}
         <p class="hall-eyebrow">Salle des trophées</p>
@@ -71,7 +75,7 @@ export function hallHTML({ steamid, player, platinum, rarity, pill, scanning }) 
   }
 
   let i = 0;
-  return `${back}
+  return `${LAMP}${back}
     <header class="hall-hero">
       ${medal()}
       <p class="hall-eyebrow">Salle des trophées</p>
@@ -87,17 +91,17 @@ export function hallHTML({ steamid, player, platinum, rarity, pill, scanning }) 
     ${[...byYear]
       .map(
         ([year, list]) => `
-      <section class="hall-year">
-        <h2><span>${year}</span><small>${list.length} platine${list.length > 1 ? 's' : ''}</small></h2>
-        <div class="plaques">${list.map((p) => plaque(p, i++, { rarity, pill })).join('')}</div>
+      <section class="vitrine">
+        <h2 class="vitrine-title"><span>${year}</span><small>${list.length} platine${list.length > 1 ? 's' : ''}</small></h2>
+        <div class="exhibits">${list.map((p) => exhibit(p, i++, { rarity, pill })).join('')}</div>
       </section>`,
       )
       .join('')}`;
 }
 
-/** Fait apparaître les plaques au fil du défilement, une seule fois chacune. */
+/** Fait apparaître les jeux exposés au fil du défilement, une seule fois chacun. */
 export function revealPlaques(root) {
-  const plaques = root.querySelectorAll('.plaque');
+  const plaques = root.querySelectorAll('.exhibit');
   if (reduceMotion.matches || !('IntersectionObserver' in window)) {
     for (const p of plaques) p.classList.add('is-in');
     return;
