@@ -28,6 +28,7 @@ import { trackNewAchievements } from './tracking.js';
 import { byAccessibility, findNextPlatinums, renderNextPlatinums } from './nextplat.js';
 import { openShareCard } from './sharecard.js';
 import { hallHTML, revealPlaques } from './hall.js';
+import { makeSpinnable } from './disc.js';
 import { MAX_PINS, loadMarks, saveMarks, toggleMark } from './marks.js';
 import { applyAmbient, restoreAmbient, updateAmbient } from './ambient.js';
 import { installArtFallback, preloadArt, registerIcons } from './art.js';
@@ -1940,6 +1941,7 @@ async function openGame(appid) {
       </div>
     </div>`;
   modal.showModal();
+  makeSpinnable(modal.querySelector('.disc'));
 
   if (!g.hasStats) return;
   try {

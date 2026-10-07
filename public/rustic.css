@@ -650,17 +650,19 @@ body::after {
     radial-gradient(circle, transparent 0 96%, rgba(255, 255, 255, 0.35) 98.5%, transparent 100%);
 }
 
-/* Au survol, le disque tourne doucement (souris uniquement) */
-@media (hover: hover) and (pointer: fine) {
-  .disc-tray:hover .disc-art {
-    animation: disc-spin 8s linear infinite;
-  }
+/* Le disque s'attrape pour le faire tourner (voir disc.js) */
+.disc {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 
-@keyframes disc-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.disc.is-grabbed {
+  cursor: grabbing;
+}
+
+.disc-art {
+  will-change: transform;
 }
 
 @media (max-width: 760px) {
