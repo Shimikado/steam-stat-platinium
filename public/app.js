@@ -1377,6 +1377,10 @@ function featureCard(label, { g, a, date, num }) {
     </button>`;
 }
 
+// Petit spot accroché sous l'étagère du dessus, qui met en lumière les platines les plus rares.
+const SPOT =
+  '<span class="spot" aria-hidden="true"><span class="spot-fixture"></span><span class="spot-glow"><span class="spot-beam"></span></span><span class="spot-pool"></span></span>';
+
 let lastPlatKey = '';
 const seenPlat = new Set();
 
@@ -1410,6 +1414,12 @@ function renderPlatinum(s) {
   // Platines épinglés en tête, dans l'ordre d'épinglage.
   const pinRank = (p) => { const i = [...state.pins].indexOf(p.g.appid); return i < 0 ? Infinity : i; };
   const shelf = [...s.platinum].sort((x, y) => pinRank(x) - pinRank(y));
+  // Spots : les platines les plus rares de la collection (10 %, entre 1 et 15), pleine lumière sous 1 %.
+  const spotlit = s.platinum
+    .filter((p) => state.rarity.has(p.g.appid))
+    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))
+    .slice(0, Math.max(1, Math.min(15, Math.round(s.platinum.length * 0.1))));
+  const spotOf = new Map(spotlit.map((p) => [p.g.appid, state.rarity.get(p.g.appid) <= 1 ? 'spot-strong' : 'spot-soft']));
   el.innerHTML = `<div class="shelf">${shelf
     .map(({ g, date, num }) => {
       const tier = rarityTier(state.rarity.get(g.appid));
@@ -1419,8 +1429,9 @@ function renderPlatinum(s) {
         ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
         ${state.pins.has(g.appid) ? `<span class="pin-badge" title="Épinglé">${icon('pin')}</span>` : ''}`;
       return `
-      <button class="shelf-slot holo ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\nPlatine n°${num} · ${fmtDate(date)}`)}" aria-label="${esc(g.name)}">
+      <button class="shelf-slot holo ${tier ? `tier-${tier.id}` : ''} ${spotOf.get(g.appid) ?? ''}" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\nPlatine n°${num} · ${fmtDate(date)}`)}" aria-label="${esc(g.name)}">
         ${boxHTML(g.appid, g.name, extra)}
+        ${spotOf.has(g.appid) ? SPOT : ''}
         <span class="shelf-tag">n°${num}</span>
       </button>`;
     })

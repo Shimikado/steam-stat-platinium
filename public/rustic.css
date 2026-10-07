@@ -363,14 +363,118 @@ body::after {
   }
 }
 
-/* Les ultra-rares gardent leur reflet irisé et un halo */
-.holo.tier-ultra .box-front {
+/* Sur l'étagère, pas de contour ni de reflet permanent : la rareté est mise en lumière par un spot */
+.shelf-slot.holo .holo-foil {
+  animation: none;
+  opacity: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .shelf-slot.holo:hover .holo-foil {
+    opacity: 0.22;
+  }
+}
+
+/* ---------------------------------------------------------------- spot sur les platines rares */
+
+.spot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: calc(var(--plank) - 6px);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Luminaire en laiton, fixé sous la planche du dessus */
+.spot-fixture {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 24px;
+  height: 9px;
+  transform: translateX(-50%);
+  border-radius: 0 0 9px 9px;
+  background: linear-gradient(180deg, #e7c07a, #8a6230);
   box-shadow:
-    inset 5px 0 0 rgba(255, 255, 255, 0.1),
-    inset 6px 0 0 rgba(0, 0, 0, 0.35),
-    0 0 0 1.5px rgba(226, 200, 255, 0.8),
-    0 12px 20px rgba(0, 0, 0, 0.5),
-    0 0 22px rgba(197, 139, 255, 0.3);
+    0 2px 3px rgba(0, 0, 0, 0.6),
+    0 7px 12px rgba(255, 214, 150, 0.6);
+}
+
+/* Faisceau : le flou est sur le conteneur, la découpe en cône sur l'enfant */
+.spot-glow {
+  position: absolute;
+  top: 7px;
+  bottom: 0;
+  left: 50%;
+  width: calc(var(--box-w) * 1.45);
+  transform: translateX(-50%);
+  filter: blur(5px);
+  mix-blend-mode: screen;
+}
+
+.spot-beam {
+  width: 100%;
+  height: 100%;
+  clip-path: polygon(43% 0, 57% 0, 100% 100%, 0 100%);
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 226, 175, 0.7),
+    rgba(255, 226, 175, 0.24) 65%,
+    rgba(255, 226, 175, 0.38)
+  );
+}
+
+/* Flaque de lumière sur la planche */
+.spot-pool {
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: calc(var(--box-w) * 1.5);
+  height: 16px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(255, 214, 150, 0.7), transparent 70%);
+  mix-blend-mode: screen;
+}
+
+/* La jaquette elle-même est éclairée par le haut */
+.spot-strong .box-front::after,
+.spot-soft .box-front::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: radial-gradient(120% 75% at 50% -10%, rgba(255, 228, 180, 0.45), rgba(255, 228, 180, 0.12) 55%, transparent 80%);
+}
+
+.spot-soft .box-front::after {
+  opacity: 0.6;
+}
+
+/* Spot doux pour les plus rares de la collection, pleine lumière qui respire sous 1 % */
+.spot-soft .spot {
+  opacity: 0.6;
+}
+
+.spot-strong .spot-glow,
+.spot-strong .spot-pool {
+  animation: spot-breathe 6s ease-in-out infinite alternate;
+}
+
+@keyframes spot-breathe {
+  to {
+    opacity: 0.75;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot-strong .spot-glow,
+  .spot-strong .spot-pool {
+    animation: none;
+  }
 }
 
 @media (max-width: 640px) {
