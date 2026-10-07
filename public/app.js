@@ -1377,9 +1377,18 @@ function featureCard(label, { g, a, date, num }) {
     </button>`;
 }
 
-// Petit spot accroché sous l'étagère du dessus, qui met en lumière les platines les plus rares.
-const SPOT =
-  '<span class="spot" aria-hidden="true"><span class="spot-fixture"></span><span class="spot-glow"><span class="spot-beam"></span></span><span class="spot-pool"></span></span>';
+/**
+ * Platines mis en valeur (halo) : les 10 % les plus rares de la collection, entre 1 et 15.
+ * Halo intense pour un platine obtenu par 1 % des joueurs ou moins, plus doux sinon.
+ * Renvoie une Map appid -> 'rare-strong' | 'rare-soft'.
+ */
+function rarityHighlights(s) {
+  const top = s.platinum
+    .filter((p) => state.rarity.has(p.g.appid))
+    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))
+    .slice(0, Math.max(1, Math.min(15, Math.round(s.platinum.length * 0.1))));
+  return new Map(top.map((p) => [p.g.appid, state.rarity.get(p.g.appid) <= 1 ? 'rare-strong' : 'rare-soft']));
+}
 
 let lastPlatKey = '';
 const seenPlat = new Set();
@@ -1414,12 +1423,7 @@ function renderPlatinum(s) {
   // Platines épinglés en tête, dans l'ordre d'épinglage.
   const pinRank = (p) => { const i = [...state.pins].indexOf(p.g.appid); return i < 0 ? Infinity : i; };
   const shelf = [...s.platinum].sort((x, y) => pinRank(x) - pinRank(y));
-  // Spots : les platines les plus rares de la collection (10 %, entre 1 et 15), pleine lumière sous 1 %.
-  const spotlit = s.platinum
-    .filter((p) => state.rarity.has(p.g.appid))
-    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))
-    .slice(0, Math.max(1, Math.min(15, Math.round(s.platinum.length * 0.1))));
-  const spotOf = new Map(spotlit.map((p) => [p.g.appid, state.rarity.get(p.g.appid) <= 1 ? 'spot-strong' : 'spot-soft']));
+  const highlight = rarityHighlights(s);
   el.innerHTML = `<div class="shelf">${shelf
     .map(({ g, date, num }) => {
       const tier = rarityTier(state.rarity.get(g.appid));
@@ -1429,9 +1433,8 @@ function renderPlatinum(s) {
         ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
         ${state.pins.has(g.appid) ? `<span class="pin-badge" title="Épinglé">${icon('pin')}</span>` : ''}`;
       return `
-      <button class="shelf-slot holo ${tier ? `tier-${tier.id}` : ''} ${spotOf.get(g.appid) ?? ''}" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\nPlatine n°${num} · ${fmtDate(date)}`)}" aria-label="${esc(g.name)}">
+      <button class="shelf-slot holo ${tier ? `tier-${tier.id}` : ''} ${highlight.get(g.appid) ?? ''}" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\nPlatine n°${num} · ${fmtDate(date)}`)}" aria-label="${esc(g.name)}">
         ${boxHTML(g.appid, g.name, extra)}
-        ${spotOf.has(g.appid) ? SPOT : ''}
         <span class="shelf-tag">n°${num}</span>
       </button>`;
     })
@@ -1941,7 +1944,7 @@ async function openGame(appid) {
       <div class="case-hinge" aria-hidden="true"></div>
       <div class="case-right">
         <button class="modal-close" type="button" aria-label="Fermer">${icon('close')}</button>
-        <div class="disc-tray" aria-hidden="true">
+        <div class="disc-tray ${st.kind === 'platinum' ? rarityHighlights(compute()).get(g.appid) ?? '' : ''}" aria-hidden="true">
           <span class="tray-hub"></span>
           <span class="disc">
             <span class="disc-art">${artImg(g.appid, cover, '')}</span>

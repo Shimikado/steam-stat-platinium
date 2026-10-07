@@ -363,7 +363,7 @@ body::after {
   }
 }
 
-/* Sur l'étagère, pas de contour ni de reflet permanent : la rareté est mise en lumière par un spot */
+/* Sur l'étagère, pas de contour ni de reflet permanent : la rareté se révèle par un halo au survol */
 .shelf-slot.holo .holo-foil {
   animation: none;
   opacity: 0;
@@ -375,106 +375,34 @@ body::after {
   }
 }
 
-/* ---------------------------------------------------------------- spot sur les platines rares */
+/* ---------------------------------------------------------------- halo des platines les plus rares */
 
-.spot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: calc(var(--plank) - 6px);
-  z-index: 2;
-  pointer-events: none;
-}
+/* Au survol, les plus rares de la collection s'entourent d'un halo doré (plus intense sous 1 %) */
+@media (hover: hover) and (pointer: fine) {
+  .shelf-slot.rare-soft:hover .box-front,
+  .shelf-slot.rare-soft:focus-visible .box-front {
+    box-shadow:
+      inset 5px 0 0 rgba(255, 255, 255, 0.1),
+      inset 6px 0 0 rgba(0, 0, 0, 0.35),
+      0 12px 20px rgba(0, 0, 0, 0.5),
+      0 0 18px rgba(255, 210, 140, 0.4),
+      0 0 38px rgba(255, 190, 110, 0.18);
+  }
 
-/* Luminaire en laiton, fixé sous la planche du dessus */
-.spot-fixture {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 24px;
-  height: 9px;
-  transform: translateX(-50%);
-  border-radius: 0 0 9px 9px;
-  background: linear-gradient(180deg, #e7c07a, #8a6230);
-  box-shadow:
-    0 2px 3px rgba(0, 0, 0, 0.6),
-    0 7px 12px rgba(255, 214, 150, 0.6);
-}
-
-/* Faisceau : le flou est sur le conteneur, la découpe en cône sur l'enfant */
-.spot-glow {
-  position: absolute;
-  top: 7px;
-  bottom: 0;
-  left: 50%;
-  width: calc(var(--box-w) * 1.45);
-  transform: translateX(-50%);
-  filter: blur(5px);
-  mix-blend-mode: screen;
-}
-
-.spot-beam {
-  width: 100%;
-  height: 100%;
-  clip-path: polygon(43% 0, 57% 0, 100% 100%, 0 100%);
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 226, 175, 0.7),
-    rgba(255, 226, 175, 0.24) 65%,
-    rgba(255, 226, 175, 0.38)
-  );
-}
-
-/* Flaque de lumière sur la planche */
-.spot-pool {
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  width: calc(var(--box-w) * 1.5);
-  height: 16px;
-  transform: translateX(-50%);
-  background: radial-gradient(ellipse at center, rgba(255, 214, 150, 0.7), transparent 70%);
-  mix-blend-mode: screen;
-}
-
-/* La jaquette elle-même est éclairée par le haut */
-.spot-strong .box-front::after,
-.spot-soft .box-front::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  background: radial-gradient(120% 75% at 50% -10%, rgba(255, 228, 180, 0.45), rgba(255, 228, 180, 0.12) 55%, transparent 80%);
-}
-
-.spot-soft .box-front::after {
-  opacity: 0.6;
-}
-
-/* Spot doux pour les plus rares de la collection, pleine lumière qui respire sous 1 % */
-.spot-soft .spot {
-  opacity: 0.6;
-}
-
-.spot-strong .spot-glow,
-.spot-strong .spot-pool {
-  animation: spot-breathe 6s ease-in-out infinite alternate;
-}
-
-@keyframes spot-breathe {
-  to {
-    opacity: 0.75;
+  .shelf-slot.rare-strong:hover .box-front,
+  .shelf-slot.rare-strong:focus-visible .box-front {
+    box-shadow:
+      inset 5px 0 0 rgba(255, 255, 255, 0.1),
+      inset 6px 0 0 rgba(0, 0, 0, 0.35),
+      0 12px 20px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(255, 225, 170, 0.55),
+      0 0 22px rgba(255, 214, 150, 0.65),
+      0 0 52px rgba(255, 190, 110, 0.32);
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .spot-strong .spot-glow,
-  .spot-strong .spot-pool {
-    animation: none;
-  }
+.box-front {
+  transition: box-shadow 0.3s ease;
 }
 
 @media (max-width: 640px) {
@@ -578,26 +506,11 @@ body::after {
     inset 0 0 40px rgba(0, 0, 0, 0.45);
 }
 
-/* Agrafes, le long de la charnière */
-.manual::before,
-.manual::after {
-  content: '';
-  position: absolute;
-  right: 7px;
-  width: 4px;
-  height: 34px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, #6d6a66, #d6d2cc, #7e7a75);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
-  z-index: 2;
-}
-
-.manual::before {
-  top: 22%;
-}
-
-.manual::after {
-  bottom: 22%;
+/* La vraie barre de défilement du manuel : fine et laiton, pour ne pas la confondre avec le boîtier */
+.manual,
+.manual .modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(217, 167, 90, 0.45) transparent;
 }
 
 .manual .modal-head {
@@ -628,14 +541,22 @@ body::after {
   object-fit: cover;
 }
 
-/* Charnière centrale, striée */
+/* Charnière centrale : des crans horizontaux, comme sur un vrai boîtier
+   (des rayures verticales se confondaient avec une barre de défilement) */
 .case-hinge {
-  margin: 26px 0;
-  border-radius: 4px;
+  margin: 18px 0;
+  border-radius: 8px;
   background:
-    repeating-linear-gradient(to right, #0b0806 0 3px, #241c16 3px 5px),
-    #15100c;
-  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.85);
+    /* arrondi des crans : reflet au centre, ombre sur les bords */
+    linear-gradient(90deg, rgba(0, 0, 0, 0.55), rgba(255, 255, 255, 0.07) 45%, rgba(255, 255, 255, 0.07) 55%, rgba(0, 0, 0, 0.55)),
+    /* crans séparés par de fines rainures */
+    repeating-linear-gradient(to bottom, #3a2e24 0, #3a2e24 54px, #0b0806 54px, #0b0806 58px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* La barre de défilement du manuel s'écarte un peu de la charnière */
+.manual .modal-body {
+  margin-right: 8px;
 }
 
 /* ---------------------------------------------------------------- volet droit : le disque */
@@ -688,7 +609,46 @@ body::after {
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.9);
 }
 
+/* Halo autour du disque des platines les plus rares, toujours visible et qui respire */
+.disc-tray::after {
+  content: '';
+  position: absolute;
+  inset: -22px;
+  z-index: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.disc-tray.rare-soft::after,
+.disc-tray.rare-strong::after {
+  opacity: 1;
+  animation: disc-halo 4.5s ease-in-out infinite alternate;
+}
+
+.disc-tray.rare-soft::after {
+  background: radial-gradient(circle, transparent 60%, rgba(255, 210, 140, 0.32) 68%, transparent 76%);
+}
+
+.disc-tray.rare-strong::after {
+  background: radial-gradient(circle, transparent 59%, rgba(255, 220, 160, 0.6) 66%, rgba(255, 190, 110, 0.2) 72%, transparent 79%);
+}
+
+@keyframes disc-halo {
+  to {
+    opacity: 0.55;
+    transform: scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .disc-tray::after {
+    animation: none;
+  }
+}
+
 .disc {
+  z-index: 1;
   position: relative;
   width: 100%;
   aspect-ratio: 1;
