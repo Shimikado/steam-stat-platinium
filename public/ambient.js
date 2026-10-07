@@ -5,7 +5,7 @@ import { setBackdropColors } from './backdrop.js';
 // teintent le fond procédural de la page.
 
 const CACHE_KEY = 'steam-stats:ambient:v1'; // appid -> [r, g, b]
-const DEFAULT = [255, 128, 92];
+const DEFAULT = [226, 163, 84]; // laiton, couleur par défaut de l'ambiance
 
 function readCache() {
   try {

@@ -52,7 +52,7 @@ function paletteFrom(rgb) {
   const [h, s] = toHsl(rgb);
   const wrap = (x) => (x + 1) % 1;
   return [
-    hsl(h, Math.min(0.85, s), 0.55),
+    hsl(h, Math.min(0.65, s), 0.52),
     hsl(wrap(h - 0.07), Math.min(0.8, s * 0.9), 0.5),
     hsl(wrap(h + 0.09), Math.min(0.75, s * 0.85), 0.45),
     hsl(wrap(h + 0.5), 0.35, 0.4), // touche complémentaire, très discrète
@@ -62,7 +62,7 @@ function paletteFrom(rgb) {
 /** Ramène une couleur source à une teinte qui rend bien en lueur sur fond sombre. */
 function glow(rgb, l) {
   const [h, s] = toHsl(rgb);
-  return hsl(h, Math.max(0.5, Math.min(0.85, s)), l);
+  return hsl(h, Math.max(0.4, Math.min(0.65, s)), l); // teintes chaudes plutôt que néon
 }
 
 /**

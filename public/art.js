@@ -141,3 +141,21 @@ export function installArtFallback() {
     true,
   );
 }
+
+/**
+ * Boîte de jeu en semi-3D : jaquette (face avant) + tranche (le bord gauche de la jaquette, assombri).
+ * `extra` est ajouté sur la face avant (badges, pastilles…).
+ */
+export function boxHTML(appid, name, extra = '') {
+  const files = ['library_600x900.jpg', 'header.jpg'];
+  return `
+    <span class="box3d">
+      <span class="box-spine" aria-hidden="true">${artImg(appid, files, '')}</span>
+      <span class="box-front art" data-name="${escAttr(name)}">
+        ${artImg(appid, files, name)}
+        <span class="holo-foil" aria-hidden="true"></span>
+        <span class="box-gloss" aria-hidden="true"></span>
+        ${extra}
+      </span>
+    </span>`;
+}

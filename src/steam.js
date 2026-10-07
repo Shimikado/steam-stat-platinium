@@ -296,6 +296,57 @@ async function getGlobalPercentages(appid) {
   return map;
 }
 
+// ---------------------------------------------------------------- Steam Hunters (temps et difficulté du 100 %)
+
+const hunterCache = new TtlCache({ ttlMs: 7 * DAY, ns: 'hunters' });
+
+/**
+ * Statistiques de complétion publiées par Steam Hunters (steamhunters.com), pour ses membres :
+ * temps médian pour atteindre 100 %, part de joueurs ayant tout débloqué, succès impossibles,
+ * présence de DLC payants. Ne consomme pas le quota de la clé Steam.
+ * Renvoie { appid: { median, perfected, started, unobtainable, paidDlc } | null }.
+ */
+export async function getHunterStats(appids) {
+  const out = {};
+  const missing = [];
+  for (const appid of appids) {
+    const cached = await hunterCache.get(appid);
+    if (cached === undefined) missing.push(appid);
+    else out[appid] = cached;
+  }
+
+  for (let i = 0; i < missing.length; i += 100) {
+    const ids = missing.slice(i, i + 100);
+    let list;
+    try {
+      const res = await fetch(`https://steamhunters.com/api/apps?appIds=${ids.join(',')}`, {
+        headers: { Accept: 'application/json', 'User-Agent': 'SteamStats (vitrine de platines)' },
+        signal: AbortSignal.timeout(15000),
+      });
+      list = await res.json(); // page de vérification anti-robots → JSON invalide → on réessaiera plus tard
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(list)) continue;
+    const byId = new Map(list.map((g) => [g.appId, g]));
+    for (const appid of ids) {
+      const g = byId.get(appid);
+      const stats = g
+        ? {
+            median: g.medianCompletionTime || null, // minutes
+            perfected: g.playersPerfectedCount ?? 0,
+            started: g.playersStartedCount ?? 0,
+            unobtainable: g.unobtainableAchievementCount ?? 0,
+            paidDlc: Boolean(g.hasPaidDlc),
+          }
+        : null;
+      out[appid] = stats;
+      hunterCache.set(appid, stats);
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- visuels des jeux
 
 const STORE_ASSETS = 'https://shared.akamai.steamstatic.com/store_item_assets/';

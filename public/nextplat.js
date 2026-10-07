@@ -26,7 +26,7 @@ export async function findNextPlatinums(steamid, progress, diff) {
   return results.filter(Boolean);
 }
 
-export function renderNextPlatinums(list) {
+export function renderNextPlatinums(list, medianLabel = () => null) {
   return `<div class="next-list">${list
     .map(({ g, a, remaining, level }, i) => {
       const left = remaining.length;
@@ -37,7 +37,7 @@ export function renderNextPlatinums(list) {
           ${i === 0 ? '<span class="next-pick">Le plus à portée</span>' : ''}
           <span class="next-title">${esc(g.name)}</span>
           <span class="next-meta">
-            <span>Plus que <strong>${left}</strong> succès</span>
+            <span>Plus que <strong>${left}</strong> succès${medianLabel(g.appid) ? ` · 100 % en ${medianLabel(g.appid)}` : ''}</span>
             <span class="difficulty diff-${level.id}">${level.label}</span>
           </span>
           <span class="bar"><i style="width:${a.percent}%"></i></span>

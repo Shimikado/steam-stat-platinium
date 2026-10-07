@@ -1,18 +1,19 @@
 :root {
-  --bg: #140f15;
-  --surface: #1d171f;
-  --surface-2: #261f29;
-  --surface-3: #342a37;
-  --border: #3a2f3e;
-  --text: #f5eeea;
-  --text-2: #bdb0b4;
-  --muted: #8a7d83;
-  --accent-rgb: 255 128 92;
+  /* Ambiance « étagères en bois sombre » : bois foncé, papier crème, laiton */
+  --bg: #15100c;
+  --surface: #211812;
+  --surface-2: #2b2018;
+  --surface-3: #3a2b20;
+  --border: #45331f;
+  --text: #f3e7d3;
+  --text-2: #c9b597;
+  --muted: #8f7a62;
+  --accent-rgb: 226 163 84;
   --accent: rgb(var(--accent-rgb));
-  --accent-strong: #ffb299;
+  --accent-strong: #f2c98b;
   --accent-soft: rgb(var(--accent-rgb) / 0.14);
   /* Couleur d'ambiance tirée du visuel d'un jeu du profil (voir ambient.js) */
-  --ambient-rgb: 255 128 92;
+  --ambient-rgb: 226 163 84;
   --plat-1: #f4f8ff;
   --plat-2: #b9cbe4;
   --plat-3: #7d97bd;
@@ -23,7 +24,7 @@
   --radius-sm: 8px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Sora', var(--font);
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
   --gutter: clamp(16px, 4vw, 40px);
 }
 

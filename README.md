@@ -20,6 +20,8 @@ npm start              # http://localhost:3000
 - **Amis** : sur ton propre profil, une fois connecté (jamais sur celui des autres), liste cliquable avec leur statut (en ligne, en jeu) pour ouvrir leur vitrine. Il faut que la liste d'amis soit publique.
 - **Recherche** de n'importe quel profil public depuis la barre du haut
 - Temps de jeu total, jeux possédés, jamais lancés, 2 dernières semaines, temps sur Steam Deck
+- **Ambiance** : étagères en bois sombre, papier crème et laiton. Les platines sont rangés comme des boîtes de jeux en semi-3D (jaquette et tranche), dans la vitrine comme dans la salle des trophées.
+- **Temps et difficulté du 100 %** via l'API publique de [Steam Hunters](https://steamhunters.com) : temps médian, part de chasseurs ayant tout débloqué, succès impossibles, DLC payants (cache 7 jours, hors quota Steam).
 - **Vitrine des platines** : bannières « Dernier platine » et « Platine le plus rare », cartes holographiques et rareté de chaque platine. La rareté est une borne haute : on prend le succès le plus rare du jeu, d'après les statistiques mondiales de Steam.
 - **Presque platinés** (≥ 75 %), avec le nombre de succès restants
 - **Célébration des nouveautés** : sur ton propre profil, l'app compare avec ta visite précédente (mémorisée dans le navigateur). Les nouveaux platines et les changements de rang déclenchent des confettis et une étiquette « Nouveau » dans la vitrine.

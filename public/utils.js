@@ -6,7 +6,7 @@ export const dateFmt = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month:
 export const monthFmt = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' });
 export const monthShort = new Intl.DateTimeFormat('fr-FR', { month: 'short' });
 
-export { ART_HOSTS, artImg } from './art.js';
+export { ART_HOSTS, artImg, boxHTML } from './art.js';
 
 export const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

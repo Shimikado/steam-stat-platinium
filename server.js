@@ -7,6 +7,7 @@ import {
   computeSummary,
   getAchievementSummaries,
   getArt,
+  getHunterStats,
   getFriends,
   getGameAchievements,
   getDifficulties,
@@ -278,6 +279,16 @@ api.get('/img', async (req, res) => {
 
 // Consommation du jour de la clé Steam (limite : 100 000 appels).
 api.get('/usage', (req, res) => res.json(usage()));
+
+// Temps médian pour 100 % et difficulté, d'après Steam Hunters.
+api.get('/hunters', async (req, res) => {
+  const appids = String(req.query.appids ?? '')
+    .split(',')
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .slice(0, 300);
+  res.json(await getHunterStats(appids));
+});
 
 api.get('/art', async (req, res) => {
   const appids = String(req.query.appids ?? '')

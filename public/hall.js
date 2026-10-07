@@ -1,4 +1,4 @@
-import { esc, icon, nf, artImg, fmtDate, fmtHours, fmtDuration, fmtRarity, rarityTier } from './utils.js';
+import { esc, icon, nf, artImg, boxHTML, fmtDate, fmtHours, fmtDuration, fmtRarity, rarityTier } from './utils.js';
 
 // Salle des trophées : une page plein écran où chaque platine a sa plaque, regroupées par année.
 
@@ -19,7 +19,7 @@ function plaque(p, i, { rarity, pill }) {
   return `
     <button class="plaque ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button" style="--i:${i}">
       <span class="plaque-bg art" data-name="">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], '')}</span>
-      <span class="plaque-capsule art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_600x900.jpg', 'header.jpg'], g.name)}</span>
+      <span class="plaque-box">${boxHTML(g.appid, g.name)}</span>
       <span class="plaque-body">
         <span class="plaque-num">${icon('trophy')} Platine n°${num}</span>
         <span class="plaque-title">${esc(g.name)}</span>

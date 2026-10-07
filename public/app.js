@@ -20,6 +20,7 @@ import {
   DIFFICULTY_TIERS,
   difficultyTier,
   fmtDuration,
+  boxHTML,
   sendJSON,
 } from './utils.js';
 import { celebrate } from './celebrate.js';
@@ -51,6 +52,7 @@ const state = {
   diff: new Map(), // appid -> { hardest, remaining, platinumMax } (difficulté du platine)
   diffScan: { done: 0, total: 0, running: false },
   added: new Map(), // appid -> { from, to, at } : succès ajoutés récemment par une mise à jour
+  hunters: new Map(), // appid -> stats Steam Hunters { median, perfected, started, unobtainable, paidDlc }
   friends: [],
   summaries: new Map(), // steamid -> résumé (platines…) des profils déjà analysés
   friendView: 'all', // 'all' | 'ranking'
@@ -298,6 +300,7 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
+  state.hunters = new Map();
   // Objectifs, marquages DLC et épingles ne concernent que son propre profil, une fois connecté.
   ({ dlc: state.dlcBlocked, goal: state.goals, pin: state.pins } =
     state.me && steamid === state.me ? loadMarks(steamid) : { dlc: new Set(), goal: new Set(), pin: new Set() });
@@ -386,7 +389,7 @@ async function scanAchievements(token, refresh) {
   await detectAddedAchievements();
   if (token !== state.token) return;
   update();
-  await loadDifficulty(token);
+  await Promise.all([loadDifficulty(token), loadHunters(token)]);
   if (token !== state.token) return;
   setAmbient(ambientSources());
   publishSummary(token);
@@ -520,7 +523,6 @@ function renderDashboard() {
     const el = e.target.closest('[data-appid]');
     if (el) openGame(Number(el.dataset.appid));
   };
-  bindHolo($('#plat'));
   $('#tiers').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-tier-toggle]');
     if (!btn) return;
@@ -653,7 +655,6 @@ function renderTiles(s) {
 // ---------------------------------------------------------------- compteurs animés
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const finePointer = matchMedia('(hover: hover) and (pointer: fine)');
 const counted = new Set(); // clés déjà animées pour le profil courant
 
 const countSpan = (key, n) => `<span data-count="${n}" data-key="${key}">${nf.format(n)}</span>`;
@@ -765,7 +766,7 @@ let lastTierKey = '';
 function renderTiers(s) {
   const el = $('#tiers');
   const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null && !state.dlcBlocked.has(x.g.appid));
-  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${[...state.dlcBlocked]}|${[...state.goals]}|${[...state.tierOpen]}`;
+  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${[...state.dlcBlocked]}|${[...state.goals]}|${[...state.tierOpen]}|${state.hunters.size}`;
   if (key === lastTierKey) return;
   lastTierKey = key;
 
@@ -812,13 +813,23 @@ const TIER_PREVIEW = 6;
 
 function tierItem({ g, a }) {
   const d = state.diff.get(g.appid);
-  const tip = `${g.name}\nPlus que ${d.remaining} succès · ${Math.round(a.percent)} % fait\nSuccès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs`;
+  const median = medianLabel(g.appid);
+  const tip = [
+    g.name,
+    `Plus que ${d.remaining} succès · ${Math.round(a.percent)} % fait`,
+    `Succès restant le plus dur : ${fmtRarity(d.hardest)} des joueurs`,
+    median ? `100 % en ${median} (médiane Steam Hunters)` : '',
+    isImpossible(g.appid) ? 'Contient des succès impossibles à obtenir' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   return `
     <button class="tier-item ${state.goals.has(g.appid) ? 'is-goal' : ''}" data-appid="${g.appid}" type="button" data-tip="${esc(tip)}">
       <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['header.jpg'], g.name)}</span>
       ${state.goals.has(g.appid) ? `<span class="goal-star" title="Objectif">${icon('star')}</span>` : ''}
       <span class="tier-name">${esc(g.name)}</span>
-      <span class="tier-left">${d.remaining} restant${d.remaining > 1 ? 's' : ''} · ${Math.round(a.percent)} %</span>
+      <span class="tier-left">${d.remaining} restant${d.remaining > 1 ? 's' : ''} · ${Math.round(a.percent)} %${median ? ` · ${median}` : ''}</span>
+      ${isImpossible(g.appid) ? '<span class="impossible-tag">Impossible</span>' : ''}
       <span class="bar"><i style="width:${a.percent}%"></i></span>
     </button>`;
 }
@@ -913,6 +924,31 @@ function renderGoals(s) {
     .join('')}</div>`;
 }
 
+// ---------------------------------------------------------------- Steam Hunters
+
+/** Temps médian du 100 % et succès impossibles (Steam Hunters), pour les jeux platinés et en cours. */
+async function loadHunters(token) {
+  const s = compute();
+  const ids = [...s.platinum, ...s.progress].map((x) => x.g.appid).filter((id) => !state.hunters.has(id));
+  for (let i = 0; i < ids.length; i += 300) {
+    try {
+      const res = await getJSON(`/api/hunters?appids=${ids.slice(i, i + 300).join(',')}`);
+      if (token !== state.token) return;
+      for (const [id, stats] of Object.entries(res)) state.hunters.set(Number(id), stats);
+    } catch {
+      return; // données facultatives
+    }
+  }
+  if (token === state.token) update();
+}
+
+/** « ≈ 12 h » : temps médian des chasseurs pour atteindre 100 %. */
+const medianLabel = (appid) => {
+  const h = state.hunters.get(appid);
+  return h?.median ? `≈ ${fmtHours(h.median)}` : null;
+};
+const isImpossible = (appid) => (state.hunters.get(appid)?.unobtainable ?? 0) > 0;
+
 // ---------------------------------------------------------------- prochain platine
 
 let lastNext;
@@ -925,12 +961,12 @@ function renderNext() {
   } else if (!state.next.length) {
     el.innerHTML = `<div class="empty">Aucun jeu commencé à recommander.</div>`;
   } else {
-    el.innerHTML = renderNextPlatinums(state.next);
+    el.innerHTML = renderNextPlatinums(state.next, medianLabel);
   }
 }
 
 async function loadNext(token) {
-  const progress = compute().progress.filter((x) => !state.dlcBlocked.has(x.g.appid));
+  const progress = compute().progress.filter((x) => !state.dlcBlocked.has(x.g.appid) && !isImpossible(x.g.appid));
   const next = await findNextPlatinums(state.steamid, progress, state.diff);
   if (token !== state.token) return;
   state.next = next;
@@ -1373,22 +1409,18 @@ function renderPlatinum(s) {
   // Platines épinglés en tête, dans l'ordre d'épinglage.
   const pinRank = (p) => { const i = [...state.pins].indexOf(p.g.appid); return i < 0 ? Infinity : i; };
   const shelf = [...s.platinum].sort((x, y) => pinRank(x) - pinRank(y));
-  el.innerHTML = `<div class="plat-grid">${shelf
+  el.innerHTML = `<div class="shelf">${shelf
     .map(({ g, date, num }) => {
       const tier = rarityTier(state.rarity.get(g.appid));
+      const extra = `
+        <span class="plat-badge" title="Platiné">${icon('trophy')}</span>
+        ${rarityPill(g.appid)}
+        ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
+        ${state.pins.has(g.appid) ? `<span class="pin-badge" title="Épinglé">${icon('pin')}</span>` : ''}`;
       return `
-      <button class="holo ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button">
-        <span class="holo-card">
-          <span class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_600x900.jpg', 'header.jpg'], g.name)}</span>
-          <span class="holo-foil" aria-hidden="true"></span>
-          <span class="holo-glare" aria-hidden="true"></span>
-          <span class="plat-badge" title="Platiné">${icon('trophy')}</span>
-          ${rarityPill(g.appid)}
-          ${state.newPlats.has(g.appid) ? '<span class="new-tag">Nouveau</span>' : ''}
-          ${state.pins.has(g.appid) ? `<span class="pin-badge" title="Épinglé">${icon('pin')}</span>` : ''}
-        </span>
-        <span class="meta">${esc(g.name)}</span>
-        <span class="sub"><span class="plat-num">n°${num}</span> · ${fmtDate(date)}</span>
+      <button class="shelf-slot holo ${tier ? `tier-${tier.id}` : ''}" data-appid="${g.appid}" type="button" data-tip="${esc(`${g.name}\nPlatine n°${num} · ${fmtDate(date)}`)}" aria-label="${esc(g.name)}">
+        ${boxHTML(g.appid, g.name, extra)}
+        <span class="shelf-tag">n°${num}</span>
       </button>`;
     })
     .join('')}</div>`;
@@ -1410,31 +1442,6 @@ function renderPlatinum(s) {
   }
 }
 
-// Inclinaison 3D + reflet holographique qui suit le pointeur (souris uniquement).
-function bindHolo(root) {
-  root.addEventListener('pointermove', (e) => {
-    if (!finePointer.matches || reduceMotion.matches) return;
-    const card = e.target.closest?.('.holo-card');
-    if (!card) return;
-    const r = card.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width;
-    const py = (e.clientY - r.top) / r.height;
-    card.style.transform = `perspective(700px) rotateX(${(0.5 - py) * 16}deg) rotateY(${(px - 0.5) * 18}deg) scale(1.04)`;
-    card.style.setProperty('--mx', `${px * 100}%`);
-    card.style.setProperty('--my', `${py * 100}%`);
-    card.classList.add('is-active');
-  });
-  root.addEventListener(
-    'pointerout',
-    (e) => {
-      const card = e.target.closest?.('.holo-card');
-      if (!card || card.contains(e.relatedTarget)) return;
-      card.style.transform = '';
-      card.classList.remove('is-active');
-    },
-    true,
-  );
-}
 
 function renderNearly(s) {
   const list = s.progress.filter((x) => x.a.percent >= 75 && !state.dlcBlocked.has(x.g.appid)).slice(0, 12);
@@ -1875,6 +1882,7 @@ function certificate(g, a) {
       ${g.playtime ? `<span><b>${fmtHours(g.playtime)}</b>de jeu</span>` : ''}
       <span><b>${a.total}</b>succès</span>
       <span><b>${fmtDate(a.times[0])}</b>premier succès</span>
+      ${medianLabel(g.appid) ? `<span><b>${medianLabel(g.appid)}</b>médiane des chasseurs</span>` : ''}
     </div>
     ${canMark() ? `<div class="cert-actions">${pinButton(g.appid)}</div>` : ''}`;
 }
@@ -1947,6 +1955,19 @@ function gameNotices(g, st) {
       <span class="difficulty diff-${tier.id}">${tier.label}</span>
       <span>Il te reste <strong>${d.remaining} succès</strong> pour le platine · le plus dur est débloqué par ${fmtRarity(d.hardest)} des joueurs</span>
     </div>`);
+  }
+  const hunt = st.kind !== 'platinum' ? state.hunters.get(g.appid) : null;
+  if (hunt?.median || hunt?.paidDlc) {
+    const share = hunt.started ? Math.round((hunt.perfected / hunt.started) * 100) : null;
+    const parts = [
+      hunt.median ? `100 % en <strong>≈ ${fmtHours(hunt.median)}</strong> en médiane${g.playtime ? ` (tu en es à ${fmtHours(g.playtime)})` : ''}` : '',
+      share != null && hunt.started >= 20 ? `${share} % des chasseurs qui l’ont commencé l’ont fini` : '',
+      hunt.paidDlc ? 'ce jeu a des DLC payants' : '',
+    ].filter(Boolean);
+    out.push(`<div class="notice-hunt">${icon('clock')}<span>${parts.join(' · ')} <a href="https://steamhunters.com/apps/${g.appid}/achievements" target="_blank" rel="noopener">Steam Hunters ↗</a></span></div>`);
+  }
+  if (st.kind !== 'platinum' && hunt?.unobtainable) {
+    out.push(`<div class="notice-dlc is-on">${icon('lock')}<span><strong>${hunt.unobtainable} succès impossible${hunt.unobtainable > 1 ? 's' : ''} à obtenir</strong> : le platine n’est plus faisable.</span></div>`);
   }
   if (canMark() && (st.kind === 'progress' || st.kind === 'notstarted')) {
     const goal = state.goals.has(g.appid);
