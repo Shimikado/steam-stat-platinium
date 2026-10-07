@@ -1893,11 +1893,14 @@ async function openGame(appid) {
   const st = statusOf(g);
   const a = st.a;
 
+  // La fiche s'ouvre comme un boîtier de jeu : à gauche le manuel avec les infos,
+  // à droite le disque, sérigraphié avec l'image du jeu.
+  const cover = ['library_600x900.jpg', 'header.jpg'];
   modal.innerHTML = `
-    <div class="modal-hero">
-      <div class="art" data-name="${esc(g.name)}">${artImg(g.appid, ['library_hero.jpg', 'header.jpg'], g.name)}</div>
-      <button class="modal-close" type="button" aria-label="Fermer">${icon('close')}</button>
-    </div>
+    <div class="case">
+      <div class="case-left">
+        <div class="case-flap">
+          <div class="manual">
     <div class="modal-head">
       ${
         st.kind === 'platinum'
@@ -1916,6 +1919,25 @@ async function openGame(appid) {
     </div>
     <div class="modal-body" id="modalBody">
       ${g.hasStats ? `<div class="loading" style="min-height:160px"><div class="spinner"></div></div>` : `<p class="empty">Ce jeu ne propose pas de succès Steam.</p>`}
+    </div>
+          </div>
+          <div class="case-outside" aria-hidden="true">
+            <span class="art">${artImg(g.appid, cover, '')}</span>
+          </div>
+        </div>
+      </div>
+      <div class="case-hinge" aria-hidden="true"></div>
+      <div class="case-right">
+        <button class="modal-close" type="button" aria-label="Fermer">${icon('close')}</button>
+        <div class="disc-tray" aria-hidden="true">
+          <span class="tray-hub"></span>
+          <span class="disc">
+            <span class="disc-art">${artImg(g.appid, cover, '')}</span>
+            <span class="disc-clear"></span>
+            <span class="disc-shine"></span>
+          </span>
+        </div>
+      </div>
     </div>`;
   modal.showModal();
 

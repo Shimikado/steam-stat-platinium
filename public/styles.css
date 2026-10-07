@@ -1925,22 +1925,6 @@ main {
   }
 }
 
-.modal-hero {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.modal-hero .art {
-  aspect-ratio: 460 / 160;
-}
-
-.modal-hero .art::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, transparent 30%, var(--surface) 100%);
-}
-
 .modal-close {
   position: absolute;
   top: 12px;
@@ -1962,8 +1946,7 @@ main {
 }
 
 .modal-head {
-  padding: 0 24px 16px;
-  margin-top: -36px;
+  padding: 22px 24px 16px;
   position: relative;
   z-index: 1;
 }

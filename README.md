@@ -29,7 +29,7 @@ npm start              # http://localhost:3000
 - **Succès ajoutés par une mise à jour** : Steam ne donne pas la date d'ajout des succès, donc l'app mémorise le nombre total de succès de chaque jeu dans le navigateur et repère les hausses d'une visite à l'autre. Les platines « perdus » sont signalés « à reconquérir ».
 - **Objectifs de platine** : marquage ⭐ depuis la fiche d'un jeu. Les objectifs sont mis en avant en haut du profil, ont leur onglet dans la bibliothèque et déclenchent « Objectif atteint ! » une fois platinés.
 - **Platines bloqués par un DLC** : marquage manuel depuis la fiche d'un jeu (Steam ne dit pas quels DLC tu possèdes). Ces jeux sortent de la tier list, du prochain platine et des presque platinés, et sont rangés dans l'onglet « Bloqués (DLC) » de la bibliothèque.
-- **Fiche jeu** : les succès manquants passent en premier, du plus accessible au plus rare.
+- **Fiche jeu en boîtier ouvert** : la fiche s'ouvre comme un boîtier de jeu. À gauche, le manuel porte les infos et les succès (manquants en premier) ; à droite, le disque est sérigraphié avec l'image du jeu.
 - **Salle des trophées** (`#/u/<steamid>/trophees`) : une page plein écran avec une plaque par platine, regroupées par année (numéro, date, durée de la chasse, rareté)
 - **Numéro de platine** chronologique et **certificat de platine** dans la fiche des jeux platinés
 - **Platines épinglés** (3 au maximum) : depuis la fenêtre de la carte de chasseur ou le certificat d'un jeu platiné. Ils passent en tête de la vitrine et sur la carte, complétés par les plus rares, et teintent la lumière du fond animé.
