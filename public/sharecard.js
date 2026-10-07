@@ -1,23 +1,31 @@
 import { artUrls } from './art.js';
-import { esc, icon, nf, fmtRarity, rarityTier, artImg } from './utils.js';
+import { esc, icon, nf, fmtRarity, artImg } from './utils.js';
 
 // Carte de chasseur partageable (PNG 1200×630, le format des aperçus Discord/Twitter).
 
 const W = 1200;
 const H = 630;
 
-const TONES = {
-  rookie: ['#8b97ad', '#5e6a80', '#8b97ad'],
-  bronze: ['#f3c39a', '#b26d3c', '#e9a87a'],
-  silver: ['#f4f6fa', '#a9b3c3', '#e3e8f0'],
-  gold: ['#fff1b0', '#e0a82e', '#ffe08a'],
-  plat: ['#f4f8ff', '#b9cbe4', '#7d97bd'],
-  diamond: ['#e6fbff', '#7fd6ff', '#c9b8ff'],
-  legend: ['#ff8ccf', '#ffd36e', '#7effc8', '#6ec8ff', '#c58bff'],
-};
+// Ambiance « étagère en bois sombre » : bois, laiton, papier crème et lumière de lampe (comme l'app).
+const WOOD = { light: '#8a5d39', mid: '#6b4528', dark: '#4a2e18', deep: '#2c1a0d' };
+const PAPER = '#efe2c6';
+const INK = '#3b2a1a';
+const CREAM = '#f3e6cb';
+const MUTED = '#b59b7a';
+const BRASS = ['#f8e2a8', '#d9a75a', '#9c6a30'];
+const DISPLAY = 'Fraunces, Georgia, serif';
+
+// Même échelle que le halo de rareté de l'étagère (rustic.css) : cuivre → ambre → or → or blanc.
+function halo(rarity) {
+  if (rarity == null) return null;
+  if (rarity <= 1) return { rgb: '255,232,178', a: 0.95 };
+  if (rarity <= 5) return { rgb: '255,196,96', a: 0.7 };
+  if (rarity <= 20) return { rgb: '232,160,80', a: 0.5 };
+  return { rgb: '196,128,84', a: 0.32 };
+}
 
 // La police du canvas n'a pas toujours l'espace fine insécable du français : on la remplace par une espace normale.
-const plain = (text) => String(text).replace(/[  ]/g, ' ');
+const plain = (text) => String(text).replace(/[  ]/g, ' ');
 
 const proxied = (url) => `/api/img?url=${encodeURIComponent(url)}`;
 
@@ -40,6 +48,14 @@ function gradient(ctx, x0, y0, x1, y1, colors) {
   const g = ctx.createLinearGradient(x0, y0, x1, y1);
   colors.forEach((c, i) => g.addColorStop(i / (colors.length - 1), c));
   return g;
+}
+
+function glow(ctx, x, y, r, color) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -66,158 +82,349 @@ function fitText(ctx, text, maxWidth) {
   return `${t}…`;
 }
 
+/** Fond du meuble : bois sombre veiné. */
+function woodPanel(ctx, x, y, w, h, top = '#24170d', bottom = '#170f08') {
+  ctx.fillStyle = gradient(ctx, 0, y, 0, y + h, [top, bottom]);
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = 'rgba(255,220,170,0.022)';
+  for (let gx = x; gx < x + w; gx += 13) ctx.fillRect(gx, y, 3, h);
+}
+
+/** Petite étiquette papier punaisée, légèrement de travers. draw(ctx, w, h) dessine autour du centre. */
+function paperTag(ctx, cx, y, w, h, rot, draw, pin = false) {
+  ctx.save();
+  ctx.translate(cx, y + h / 2);
+  ctx.rotate((rot * Math.PI) / 180);
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 4;
+  ctx.fillStyle = gradient(ctx, 0, -h / 2, 0, h / 2, [PAPER, '#e3d2b0']);
+  roundRect(ctx, -w / 2, -h / 2, w, h, 3);
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  if (pin) {
+    ctx.fillStyle = gradient(ctx, -4, -h / 2 + 3, 4, -h / 2 + 11, ['#fff0c8', '#8c5e28']);
+    ctx.beginPath();
+    ctx.arc(0, -h / 2 + 7, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.textAlign = 'center';
+  draw(ctx, w, h);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+/** Plaque de laiton gravée, avec ses deux vis. */
+function brassPlate(ctx, x, y, text) {
+  ctx.font = `600 21px ${DISPLAY}`;
+  const w = ctx.measureText(text).width + 64;
+  const h = 40;
+  const cy = y + h / 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 8;
+  ctx.shadowOffsetY = 3;
+  ctx.fillStyle = gradient(ctx, x, y, x, y + h, BRASS);
+  roundRect(ctx, x, y, w, h, 4);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255,245,215,0.45)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, x + 3.5, y + 3.5, w - 7, h - 7, 2);
+  ctx.stroke();
+  for (const sx of [x + 15, x + w - 15]) {
+    ctx.fillStyle = gradient(ctx, sx - 4, cy - 4, sx + 4, cy + 4, ['#fff0c8', '#7d5424']);
+    ctx.beginPath();
+    ctx.arc(sx, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(60,35,12,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(sx - 3, cy + 1);
+    ctx.lineTo(sx + 3, cy - 1);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,240,205,0.5)'; // gravure : liseré clair sous les lettres
+  ctx.fillText(text, x + 32, y + 28);
+  ctx.fillStyle = INK;
+  ctx.fillText(text, x + 32, y + 27);
+}
+
+/** Boîte de jeu en semi-3D : tranche à gauche, jaquette de face. */
+function gameBox(ctx, img, x, y, w, h) {
+  const spine = 16;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 22;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = '#2a1d14';
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+
+  // Tranche
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x - spine, y + 7);
+  ctx.lineTo(x, y);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x - spine, y + h - 3);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = '#2a1d14';
+  ctx.fillRect(x - spine, y, spine, h);
+  if (img) ctx.drawImage(img, x - spine, y, (img.width * h) / img.height, h);
+  ctx.fillStyle = 'rgba(10,6,3,0.6)';
+  ctx.fillRect(x - spine, y, spine, h);
+  ctx.restore();
+
+  // Face
+  if (img) drawCover(ctx, img, x, y, w, h, 3);
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  ctx.fillRect(x, y, 5, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(x + 5, y, 1, h);
+  // Reflet de la lampe sur le plastique
+  ctx.fillStyle = gradient(ctx, x, y, x + w, y + h, ['rgba(255,236,200,0.16)', 'rgba(255,236,200,0)', 'rgba(255,236,200,0)']);
+  ctx.fillRect(x, y, w, h);
+}
+
 async function drawCard({ player, rank, plats, stats, featured }) {
   await document.fonts.ready;
+  await Promise.all(
+    [`800 150px ${DISPLAY}`, `600 46px ${DISPLAY}`, `700 28px ${DISPLAY}`, '600 15px Inter'].map((f) =>
+      document.fonts.load(f).catch(() => {}),
+    ),
+  );
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
+  ctx.textBaseline = 'alphabetic';
 
   const [avatar, ...covers] = await Promise.all([
     loadImage([player.avatar]),
     ...featured.map((f) => loadImage(capsuleUrls(f.appid))),
   ]);
 
-  // Fond
-  ctx.fillStyle = '#140f15';
+  // Cadre en bois, puis le fond du meuble
+  const F = 14;
+  ctx.fillStyle = gradient(ctx, 0, 0, W, H, [WOOD.mid, WOOD.dark, WOOD.deep, WOOD.dark]);
   ctx.fillRect(0, 0, W, H);
-  for (const [x, y, r, c] of [
-    [1050, -60, 620, 'rgba(255,128,92,0.18)'],
-    [80, 640, 560, 'rgba(185,203,228,0.10)'],
-    [760, 420, 420, 'rgba(197,139,255,0.08)'],
-  ]) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, c);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
-  ctx.strokeStyle = 'rgba(185,203,228,0.25)';
-  ctx.lineWidth = 2;
-  roundRect(ctx, 16, 16, W - 32, H - 32, 28);
-  ctx.stroke();
+  woodPanel(ctx, F, F, W - F * 2, H - F * 2, '#211509', '#130c06');
+  ctx.strokeStyle = 'rgba(217,167,90,0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(F + 0.5, F + 0.5, W - F * 2 - 1, H - F * 2 - 1);
+  glow(ctx, 260, 260, 420, 'rgba(255,190,120,0.07)');
 
-  const tone = TONES[rank.tone] ?? TONES.plat;
+  // ---------------------------------------------------------------- à gauche : le chasseur
 
-  // Avatar avec anneau du rang
-  const ax = 64;
-  const ay = 70;
-  const as = 132;
-  ctx.fillStyle = gradient(ctx, ax, ay, ax + as, ay + as, tone);
-  roundRect(ctx, ax - 6, ay - 6, as + 12, as + 12, 30);
+  // Avatar dans un cadre en laiton
+  const ax = 70;
+  const ay = 72;
+  const as = 120;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 6;
+  ctx.fillStyle = gradient(ctx, ax - 9, ay - 9, ax + as + 9, ay + as + 9, BRASS);
+  roundRect(ctx, ax - 9, ay - 9, as + 18, as + 18, 6);
   ctx.fill();
-  ctx.fillStyle = '#140f15';
-  roundRect(ctx, ax - 2, ay - 2, as + 4, as + 4, 26);
-  ctx.fill();
-  if (avatar) drawCover(ctx, avatar, ax, ay, as, as, 24);
+  ctx.restore();
+  ctx.fillStyle = '#1a110a';
+  ctx.fillRect(ax - 2, ay - 2, as + 4, as + 4);
+  if (avatar) drawCover(ctx, avatar, ax, ay, as, as, 2);
 
-  // Nom + rang
-  const tx = ax + as + 34;
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '800 50px Sora, Inter, sans-serif';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText(fitText(ctx, player.name, 470), tx, ay + 58);
+  const tx = ax + as + 36;
+  ctx.fillStyle = CREAM;
+  ctx.font = `600 46px ${DISPLAY}`;
+  ctx.fillText(fitText(ctx, player.name, 380), tx, ay + 50);
+  brassPlate(ctx, tx, ay + 72, `Rang ${rank.name}`);
 
-  ctx.font = '700 22px Inter, sans-serif';
-  const rankLabel = `Rang ${rank.name}`;
-  const rw = ctx.measureText(rankLabel).width + 40;
-  ctx.fillStyle = gradient(ctx, tx, 0, tx + rw, 0, tone);
-  roundRect(ctx, tx, ay + 82, rw, 42, 21);
-  ctx.fill();
-  ctx.fillStyle = '#1c2436';
-  ctx.fillText(rankLabel, tx + 20, ay + 111);
-
-  // Gros chiffre : platines
-  const plat = gradient(ctx, 64, 300, 420, 420, ['#f4f8ff', '#b9cbe4', '#7d97bd', '#f4f8ff']);
-  ctx.fillStyle = plat;
-  ctx.font = '800 150px Sora, Inter, sans-serif';
+  // Gros chiffre en laiton, gravé dans le bois
   const platText = plain(nf.format(plats));
-  ctx.fillText(platText, 58, 400);
+  ctx.font = `800 150px ${DISPLAY}`;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillText(platText, 62, 394);
+  ctx.fillStyle = gradient(ctx, 0, 285, 0, 392, BRASS);
+  ctx.fillText(platText, 60, 390);
   const pw = ctx.measureText(platText).width;
-  ctx.font = '700 30px Sora, Inter, sans-serif';
-  ctx.fillText(plats > 1 ? 'jeux' : 'jeu', 58 + pw + 18, 352);
-  ctx.fillText(plats > 1 ? 'platinés' : 'platiné', 58 + pw + 18, 390);
+  ctx.fillStyle = CREAM;
+  ctx.font = `600 32px ${DISPLAY}`;
+  ctx.fillText(plats > 1 ? 'jeux' : 'jeu', 60 + pw + 20, 340);
+  ctx.fillText(plats > 1 ? 'platinés' : 'platiné', 60 + pw + 20, 378);
 
-  // Stats secondaires
-  ctx.font = '500 21px Inter, sans-serif';
+  // Stats sur des étiquettes papier punaisées
   let sx = 64;
-  for (const [raw, label] of stats) {
+  const rots = [-1.6, 1.1, -0.8];
+  stats.forEach(([raw, label], i) => {
     const value = plain(raw);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 32px Sora, Inter, sans-serif';
-    ctx.fillText(value, sx, 488);
+    ctx.font = `700 28px ${DISPLAY}`;
     const vw = ctx.measureText(value).width;
-    ctx.fillStyle = '#bdb0b4';
-    ctx.font = '500 18px Inter, sans-serif';
-    ctx.fillText(label, sx, 516);
-    sx += Math.max(vw, ctx.measureText(label).width) + 46;
-  }
+    ctx.font = '600 14px Inter, sans-serif';
+    const w = Math.max(vw, ctx.measureText(label).width) + 36;
+    paperTag(ctx, sx + w / 2, 436, w, 78, rots[i % rots.length], (c) => {
+      c.fillStyle = INK;
+      c.font = `700 28px ${DISPLAY}`;
+      c.fillText(value, 0, 10);
+      c.fillStyle = 'rgba(59,42,26,0.72)';
+      c.font = '600 14px Inter, sans-serif';
+      c.fillText(label, 0, 30);
+    }, true);
+    sx += w + 24;
+  });
 
-  // Jaquettes en éventail
+  // ---------------------------------------------------------------- à droite : l'étagère éclairée
+
+  const nx = 650;
+  const ny = 104;
+  const nw = W - F - 40 - nx;
+  const plankY = 452;
+  const plankH = 30;
+  const nh = plankY + plankH - ny;
+
   if (featured.length) {
-    ctx.fillStyle = '#bdb0b4';
-    ctx.font = '700 15px Inter, sans-serif';
-    ctx.letterSpacing = '2px';
-    ctx.fillText(featured.some((f) => f.pinned)
+    ctx.fillStyle = MUTED;
+    ctx.font = '700 14px Inter, sans-serif';
+    ctx.letterSpacing = '3px';
+    ctx.fillText(
+      featured.some((f) => f.pinned)
         ? 'MES PLATINES À L’HONNEUR'
         : featured.some((f) => f.rarity != null)
           ? 'MES PLATINES LES PLUS RARES'
-          : 'MES DERNIERS PLATINES', 690, 92);
+          : 'MES DERNIERS PLATINES',
+      nx - 4,
+      ny - 26,
+    );
     ctx.letterSpacing = '0px';
-
-    const cw = 150;
-    const ch = 225;
-    const slots = [
-      { x: 700, y: 150, rot: -7 },
-      { x: 855, y: 128, rot: 0 },
-      { x: 1010, y: 150, rot: 7 },
-    ];
-    featured.forEach((f, i) => {
-      const { x, y, rot } = slots[i];
-      ctx.save();
-      ctx.translate(x + cw / 2, y + ch / 2);
-      ctx.rotate((rot * Math.PI) / 180);
-      ctx.translate(-cw / 2, -ch / 2);
-      ctx.shadowColor = 'rgba(0,0,0,0.55)';
-      ctx.shadowBlur = 30;
-      ctx.shadowOffsetY = 12;
-      ctx.fillStyle = '#342a37';
-      roundRect(ctx, 0, 0, cw, ch, 14);
-      ctx.fill();
-      ctx.shadowColor = 'transparent';
-      if (covers[i]) drawCover(ctx, covers[i], 0, 0, cw, ch, 14);
-      const tier = rarityTier(f.rarity);
-      ctx.strokeStyle = tier?.id === 'ultra' ? gradient(ctx, 0, 0, cw, ch, TONES.legend) : 'rgba(220,232,250,0.7)';
-      ctx.lineWidth = 3;
-      roundRect(ctx, 0, 0, cw, ch, 14);
-      ctx.stroke();
-
-      if (f.rarity != null) {
-        const label = `≤ ${fmtRarity(f.rarity)}`;
-        ctx.font = '700 16px Inter, sans-serif';
-        const lw = ctx.measureText(label).width + 20;
-        ctx.fillStyle = tier?.id === 'ultra' ? gradient(ctx, 10, 0, 10 + lw, 0, TONES.legend) : 'rgba(9,13,20,0.85)';
-        roundRect(ctx, 10, ch - 40, lw, 30, 15);
-        ctx.fill();
-        ctx.fillStyle = tier?.id === 'ultra' ? '#1d1630' : '#f5eeea';
-        ctx.fillText(label, 20, ch - 19);
-      }
-      ctx.restore();
-
-      ctx.fillStyle = '#f5eeea';
-      ctx.font = '600 16px Inter, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(fitText(ctx, f.name, cw + 8), x + cw / 2, y + ch + 44);
-      ctx.textAlign = 'left';
-    });
   }
 
+  // Niche du meuble, encadrée de bois
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = WOOD.dark;
+  roundRect(ctx, nx - 7, ny - 7, nw + 14, nh + 14, 10);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = WOOD.mid;
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, nx - 7, ny - 7, nw + 14, nh + 14, 10);
+  ctx.stroke();
+
+  ctx.save();
+  roundRect(ctx, nx, ny, nw, nh, 6);
+  ctx.clip();
+  woodPanel(ctx, nx, ny, nw, nh);
+  ctx.fillStyle = gradient(ctx, 0, ny, 0, ny + 80, ['rgba(0,0,0,0.55)', 'rgba(0,0,0,0)']);
+  ctx.fillRect(nx, ny, nw, 80);
+
+  // Cône de la lampe
+  const lx = nx + nw / 2;
+  const cone = ctx.createLinearGradient(0, ny, 0, plankY);
+  cone.addColorStop(0, 'rgba(255,206,150,0.22)');
+  cone.addColorStop(1, 'rgba(255,206,150,0.05)');
+  ctx.fillStyle = cone;
+  ctx.filter = 'blur(14px)';
+  ctx.beginPath();
+  ctx.moveTo(lx - 30, ny + 18);
+  ctx.lineTo(lx + 30, ny + 18);
+  ctx.lineTo(nx + nw + 20, plankY);
+  ctx.lineTo(nx - 20, plankY);
+  ctx.closePath();
+  ctx.fill();
+  ctx.filter = 'none';
+  glow(ctx, lx, plankY, nw * 0.55, 'rgba(255,200,140,0.10)');
+
+  // Abat-jour en laiton, accroché au plafond de la niche
+  glow(ctx, lx, ny + 18, 70, 'rgba(255,214,160,0.35)');
+  ctx.fillStyle = gradient(ctx, lx - 34, 0, lx + 34, 0, ['#5a3a1a', '#c9944c', '#7a5226']);
+  ctx.beginPath();
+  ctx.moveTo(lx - 14, ny);
+  ctx.lineTo(lx + 14, ny);
+  ctx.lineTo(lx + 34, ny + 18);
+  ctx.lineTo(lx - 34, ny + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,210,0.95)';
+  ctx.beginPath();
+  ctx.ellipse(lx, ny + 18, 26, 3.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Poussière dans la lumière (tirage fixe : la carte reste identique d'une génération à l'autre)
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 70; i++) {
+    const t = rand();
+    const px = lx + (rand() * 2 - 1) * (40 + t * (nw / 2 - 20));
+    const py = ny + 10 + t * (plankY - ny - 20);
+    ctx.fillStyle = `rgba(255,226,180,${(0.08 + rand() * 0.3).toFixed(2)})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 0.6 + rand() * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Les boîtes, avec leur halo de rareté
+  const bw = 136;
+  const bh = 204;
+  const gap = (nw - featured.length * bw) / (featured.length + 1);
+  const boxX = (i) => nx + gap * (i + 1) + bw * i + 8;
+  featured.forEach((f, i) => {
+    const x = boxX(i);
+    const y = plankY - bh - 2;
+    const h = halo(f.rarity);
+    if (h) {
+      ctx.save();
+      ctx.filter = 'blur(22px)';
+      ctx.fillStyle = `rgba(${h.rgb},${(h.a * 0.6).toFixed(2)})`;
+      roundRect(ctx, x - 26, y - 26, bw + 44, bh + 30, 28);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.filter = 'blur(5px)';
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(x - 10, plankY - 6, bw + 16, 8);
+    ctx.restore();
+    gameBox(ctx, covers[i], x, y, bw, bh);
+    if (h) {
+      ctx.strokeStyle = `rgba(${h.rgb},${(h.a * 0.6).toFixed(2)})`;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 0.75, y + 0.75, bw - 1.5, bh - 1.5);
+    }
+  });
+
+  // Planche : dessus éclairé, chant, ombre
+  ctx.fillStyle = gradient(ctx, 0, plankY, 0, plankY + plankH, [WOOD.light, '#74492a', '#4f3119', '#3b2412', '#1f1309']);
+  ctx.fillRect(nx, plankY, nw, plankH);
+  ctx.restore();
+
+  // Étiquettes de rareté sur le chant de la planche, noms en dessous
+  featured.forEach((f, i) => {
+    const cx = boxX(i) + bw / 2;
+    if (f.rarity != null) {
+      const label = plain(`≤ ${fmtRarity(f.rarity)}`);
+      ctx.font = `700 15px ${DISPLAY}`;
+      paperTag(ctx, cx, plankY + 6, ctx.measureText(label).width + 18, 21, i % 2 ? 1.5 : -1.5, (c) => {
+        c.fillStyle = INK;
+        c.font = `700 15px ${DISPLAY}`;
+        c.fillText(label, 0, 5);
+      });
+    }
+    ctx.fillStyle = CREAM;
+    ctx.font = '600 15px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(fitText(ctx, f.name, bw + 30), cx, plankY + plankH + 40);
+    ctx.textAlign = 'left';
+  });
+
   // Pied de carte
-  ctx.fillStyle = '#8a7d83';
-  ctx.font = '600 17px Inter, sans-serif';
-  ctx.fillText('Steam Stats', 64, H - 52);
+  ctx.fillStyle = 'rgba(217,167,90,0.75)';
+  ctx.font = `600 19px ${DISPLAY}`;
+  ctx.fillText('Steam Stats', 64, H - 46);
+  ctx.fillStyle = MUTED;
+  ctx.font = '500 15px Inter, sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()), W - 64, H - 52);
+  ctx.fillText(new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()), W - 64, H - 46);
   ctx.textAlign = 'left';
 
   return canvas;
