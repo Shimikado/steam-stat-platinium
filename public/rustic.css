@@ -604,33 +604,14 @@ body::after {
   }
 }
 
-/* Sérigraphie : la jaquette entière, nette et centrée, sur un fond de la même image agrandie et floutée
-   (Steam ne fournit pas de visuel carré : recadrer la jaquette en cercle coupait le haut et le bas). */
-.disc-art {
-  position: absolute;
-  inset: 0;
-}
-
-.disc-bg img {
+/* Sérigraphie : l'image du jeu */
+.disc-art,
+.disc-art img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(1.2);
-  filter: blur(16px) brightness(0.6) saturate(1.2);
-}
-
-.disc-fg {
-  position: absolute;
-  inset: 4%;
-  filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.55));
-}
-
-.disc-fg img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
 }
 
 /* Zone transparente autour du trou, sans impression */

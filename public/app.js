@@ -1933,10 +1933,7 @@ async function openGame(appid) {
         <div class="disc-tray" aria-hidden="true">
           <span class="tray-hub"></span>
           <span class="disc">
-            <span class="disc-art">
-              <span class="disc-bg">${artImg(g.appid, cover, '')}</span>
-              <span class="disc-fg">${artImg(g.appid, cover, '')}</span>
-            </span>
+            <span class="disc-art">${artImg(g.appid, cover, '')}</span>
             <span class="disc-clear"></span>
             <span class="disc-shine"></span>
           </span>
