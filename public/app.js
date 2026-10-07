@@ -1378,16 +1378,14 @@ function featureCard(label, { g, a, date, num }) {
 }
 
 /**
- * Platines mis en valeur (halo) : les 10 % les plus rares de la collection, entre 1 et 15.
- * Halo intense pour un platine obtenu par 1 % des joueurs ou moins, plus doux sinon.
- * Renvoie une Map appid -> 'rare-strong' | 'rare-soft'.
+ * Halo de rareté de chaque platine : la couleur et l'intensité dépendent de la part de joueurs l'ayant obtenu.
+ * Renvoie une Map appid -> 'rare-1' (≤ 1 %) | 'rare-2' (≤ 5 %) | 'rare-3' (≤ 20 %) | 'rare-4'.
  */
 function rarityHighlights(s) {
-  const top = s.platinum
-    .filter((p) => state.rarity.has(p.g.appid))
-    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))
-    .slice(0, Math.max(1, Math.min(15, Math.round(s.platinum.length * 0.1))));
-  return new Map(top.map((p) => [p.g.appid, state.rarity.get(p.g.appid) <= 1 ? 'rare-strong' : 'rare-soft']));
+  const tier = (pct) => (pct <= 1 ? 'rare-1' : pct <= 5 ? 'rare-2' : pct <= 20 ? 'rare-3' : 'rare-4');
+  return new Map(
+    s.platinum.filter((p) => state.rarity.has(p.g.appid)).map((p) => [p.g.appid, tier(state.rarity.get(p.g.appid))]),
+  );
 }
 
 let lastPlatKey = '';
