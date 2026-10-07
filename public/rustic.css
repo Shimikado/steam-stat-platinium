@@ -53,6 +53,14 @@ body::after {
     0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
+/* Jeux platinés de la bibliothèque : liseré laiton discret au lieu du contour argenté */
+.game.is-plat {
+  border-color: rgba(217, 167, 90, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 225, 180, 0.08),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
 .tile.plat {
   background:
     linear-gradient(135deg, rgba(244, 248, 255, 0.08), transparent 60%),
