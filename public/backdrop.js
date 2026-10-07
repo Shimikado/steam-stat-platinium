@@ -1,149 +1,164 @@
-// Fond procédural : de grandes taches de lumière qui dérivent lentement, teintées par la couleur
-// d'ambiance du profil. Dessiné en basse résolution (puis agrandi par le navigateur, ce qui floute
-// naturellement) et limité à ~24 images/s pour rester discret et léger.
+// Fond « poussière dans la lampe » : un cône de lumière chaude (CSS, flou doux) dans lequel flottent
+// de fines particules de poussière (canvas pleine résolution). La lumière et quelques particules
+// prennent une légère teinte des couleurs du profil (platines épinglés…).
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const SCALE = 1 / 8; // résolution du canvas par rapport à l'écran
-const FRAME_MS = 1000 / 24;
+const FRAME_MS = 1000 / 30;
+const MOTES = 70;
+const WARM = [255, 206, 150]; // lumière de lampe à incandescence
 
 let canvas;
 let ctx;
 let raf = 0;
 let last = 0;
+let W = 0;
+let H = 0;
+let dpr = 1;
 const start = performance.now();
+let motes = [];
 
-// Couleurs actuelles et cibles des taches, en [r, g, b] ; on glisse de l'une à l'autre.
-let current = null;
+// Teintes des particules (la première est toujours la lumière chaude), avec glissement vers la cible.
+let tints = [WARM];
 let target = null;
 
-// Chaque tache suit une courbe de Lissajous lente : position, rayon et phase propres.
-const BLOBS = [
-  { x: 0.82, y: 0.08, ax: 0.1, ay: 0.08, fx: 0.031, fy: 0.023, r: 0.62, alpha: 0.26 },
-  { x: 0.12, y: 0.22, ax: 0.09, ay: 0.12, fx: 0.019, fy: 0.027, r: 0.55, alpha: 0.21 },
-  { x: 0.55, y: 0.78, ax: 0.16, ay: 0.07, fx: 0.023, fy: 0.017, r: 0.7, alpha: 0.17 },
-  { x: 0.95, y: 0.6, ax: 0.07, ay: 0.14, fx: 0.029, fy: 0.021, r: 0.45, alpha: 0.1 },
-];
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
-function hsl(h, s, l) {
-  const f = (n) => {
-    const k = (n + h * 12) % 12;
-    const a = s * Math.min(l, 1 - l);
-    return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
-  };
-  return [f(0), f(8), f(4)];
+// ---------------------------------------------------------------- géométrie du cône
+
+const cx = () => W * 0.5;
+/** Demi-largeur du cône de lumière à la hauteur y (étroit en haut, large en bas). */
+const halfWidth = (y) => W * (0.06 + 0.34 * Math.min(1, Math.max(0, y / H)));
+/** 1 au centre du faisceau, 0 en dehors, avec une transition douce sur les bords. */
+function inCone(x, y) {
+  const d = Math.abs(x - cx()) / halfWidth(y);
+  return d < 0.7 ? 1 : d > 1.25 ? 0 : 1 - (d - 0.7) / 0.55;
 }
 
-function toHsl([r, g, b]) {
-  r /= 255;
-  g /= 255;
-  b /= 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  if (max === min) return [0, 0, l];
-  const d = max - min;
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  return [h / 6, s, l];
+// ---------------------------------------------------------------- particules
+
+function gauss() {
+  return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; // ≈ normale, bornée
 }
 
-/** Palette de 4 teintes à partir d'une couleur : elle-même, deux voisines et une version sombre. */
-function paletteFrom(rgb) {
-  const [h, s] = toHsl(rgb);
-  const wrap = (x) => (x + 1) % 1;
-  return [
-    hsl(h, Math.min(0.65, s), 0.52),
-    hsl(wrap(h - 0.07), Math.min(0.8, s * 0.9), 0.5),
-    hsl(wrap(h + 0.09), Math.min(0.75, s * 0.85), 0.45),
-    hsl(wrap(h + 0.5), 0.35, 0.4), // touche complémentaire, très discrète
-  ];
-}
-
-/** Ramène une couleur source à une teinte qui rend bien en lueur sur fond sombre. */
-function glow(rgb, l) {
-  const [h, s] = toHsl(rgb);
-  return hsl(h, Math.max(0.4, Math.min(0.65, s)), l); // teintes chaudes plutôt que néon
-}
-
-/**
- * Palette des 4 lueurs à partir de 1 à 3 couleurs (ex. les platines épinglés) :
- * une lueur par couleur, la dernière mêle discrètement les deux premières.
- */
-function paletteFromMany(colors) {
-  if (colors.length < 2) return paletteFrom(colors[0]);
-  const [a, b, c] = colors;
-  const mix = a.map((v, i) => (v + b[i]) / 2);
-  const [h, s] = toHsl(mix);
-  return [glow(a, 0.55), glow(b, 0.5), c ? glow(c, 0.47) : paletteFrom(a)[2], hsl(h, Math.min(0.45, s), 0.4)];
+function spawn(m = {}) {
+  m.y = Math.random() * H;
+  // Plus dense dans le faisceau, quelques grains égarés ailleurs.
+  m.x = Math.random() < 0.8 ? cx() + gauss() * halfWidth(m.y) : Math.random() * W;
+  m.vx = (Math.random() - 0.5) * 0.15;
+  m.vy = (Math.random() - 0.5) * 0.12;
+  m.r = 0.5 + Math.random() ** 2 * 1.8; // surtout de très fins grains
+  m.a = 0.25 + Math.random() * 0.55;
+  m.f = 0.3 + Math.random() * 0.9; // fréquence de scintillement
+  m.p = Math.random() * Math.PI * 2;
+  m.tint = Math.random() < 0.7 ? 0 : 1 + Math.floor(Math.random() * 3); // 30 % teintées
+  return m;
 }
 
 function resize() {
-  canvas.width = Math.max(32, Math.round(window.innerWidth * SCALE));
-  canvas.height = Math.max(32, Math.round(window.innerHeight * SCALE));
-  draw(performance.now());
+  dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  motes = Array.from({ length: MOTES }, () => spawn());
+  draw(performance.now(), false);
 }
 
-function draw(now) {
-  if (!current) return;
-  const t = (now - start) / 1000;
-  const W = canvas.width;
-  const H = canvas.height;
-  const size = Math.max(W, H);
+function step(dt) {
+  for (const m of motes) {
+    // Brassage de l'air : petite marche aléatoire amortie, légère tendance à monter (air chaud).
+    m.vx = (m.vx + (Math.random() - 0.5) * 0.02) * 0.985;
+    m.vy = (m.vy + (Math.random() - 0.5) * 0.02 - 0.0015) * 0.985;
+    m.x += m.vx * dt;
+    m.y += m.vy * dt;
+    if (m.x < -10 || m.x > W + 10 || m.y < -10 || m.y > H + 10) spawn(m);
+  }
+}
 
-  // Glissement progressif vers la palette cible (~1,5 s).
+function draw(now, move = true) {
+  if (!ctx) return;
+  const t = (now - start) / 1000;
+  const dt = Math.min(3, (now - last) / 33.3 || 1);
+  if (move) step(dt);
+
   if (target) {
-    let done = true;
-    current = current.map((c, i) =>
-      c.map((v, k) => {
-        const d = target[i][k] - v;
-        if (Math.abs(d) > 0.5) done = false;
-        return v + d * 0.06;
-      }),
-    );
-    if (done) target = null;
+    tints = target.map((c, i) => mix(tints[i] ?? c, c, 0.05));
+    if (target.every((c, i) => c.every((v, k) => Math.abs(v - tints[i][k]) < 0.5))) target = null;
   }
 
   ctx.clearRect(0, 0, W, H);
   ctx.globalCompositeOperation = 'lighter';
-  BLOBS.forEach((b, i) => {
-    const x = (b.x + Math.sin(t * b.fx * 2 * Math.PI + i) * b.ax) * W;
-    const y = (b.y + Math.cos(t * b.fy * 2 * Math.PI + i * 1.7) * b.ay) * H;
-    const r = b.r * size * (1 + Math.sin(t * 0.05 + i) * 0.08);
-    const [cr, cg, cb] = current[i].map(Math.round);
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, `rgba(${cr},${cg},${cb},${b.alpha})`);
-    g.addColorStop(0.55, `rgba(${cr},${cg},${cb},${b.alpha * 0.35})`);
-    g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  });
+  for (const m of motes) {
+    const light = 0.12 + 0.88 * inCone(m.x, m.y);
+    const twinkle = 0.65 + 0.35 * Math.sin(t * m.f + m.p);
+    const alpha = m.a * light * twinkle;
+    if (alpha < 0.02) continue;
+    const [r, g, b] = (tints[m.tint] ?? tints[0]).map(Math.round);
+    // Petit halo pour les plus gros grains, puis le grain lui-même, net.
+    if (m.r > 1.3) {
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, m.r * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.globalCompositeOperation = 'source-over';
 }
 
 function loop(now) {
   raf = requestAnimationFrame(loop);
   if (now - last < FRAME_MS) return;
-  last = now;
   draw(now);
+  last = now;
 }
 
 function play() {
   cancelAnimationFrame(raf);
   if (reduceMotion.matches || document.hidden) {
-    draw(performance.now()); // une image fixe suffit
+    draw(performance.now(), false); // image fixe
     return;
   }
+  last = performance.now();
   raf = requestAnimationFrame(loop);
 }
 
+// ---------------------------------------------------------------- lampe (CSS)
+
+function buildLamp() {
+  const lamp = document.createElement('div');
+  lamp.className = 'lamp';
+  lamp.setAttribute('aria-hidden', 'true');
+  // Le flou est sur le conteneur, la découpe en cône sur l'enfant : bords du faisceau adoucis.
+  lamp.innerHTML = '<div class="lamp-cone"><div class="lamp-beam"></div></div><div class="lamp-bulb"></div>';
+  document.body.prepend(lamp);
+}
+
+function setLampColor(colors) {
+  const [r, g, b] = mix(WARM, colors[0] ?? WARM, 0.3).map(Math.round);
+  const root = document.documentElement.style;
+  root.setProperty('--lamp-r', r);
+  root.setProperty('--lamp-g', g);
+  root.setProperty('--lamp-b', b);
+}
+
+/** Teintes des particules : lumière chaude, puis les couleurs du profil éclaircies. */
+const tintsFrom = (colors) => [WARM, ...colors.slice(0, 3).map((c) => mix(c, [255, 240, 220], 0.45))];
+
 export function startBackdrop(colors) {
   if (canvas) return;
+  buildLamp();
   canvas = document.createElement('canvas');
   canvas.className = 'backdrop';
   canvas.setAttribute('aria-hidden', 'true');
-  document.body.prepend(canvas);
+  document.querySelector('.lamp').after(canvas); // la poussière passe devant le faisceau
   ctx = canvas.getContext('2d');
-  current = paletteFromMany(colors);
+  tints = tintsFrom(colors);
+  setLampColor(colors);
   resize();
   window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', play);
@@ -151,15 +166,15 @@ export function startBackdrop(colors) {
   play();
 }
 
-/** Change les couleurs du fond (1 à 3 couleurs), avec un fondu vers la nouvelle palette. */
+/** Change les couleurs du profil (1 à 3) : la lampe glisse vers la nouvelle teinte, la poussière aussi. */
 export function setBackdropColors(colors) {
   if (!colors?.length) return;
   if (!canvas) return startBackdrop(colors);
-  target = paletteFromMany(colors);
-  // Avec les animations réduites, pas de boucle : on applique directement.
+  setLampColor(colors);
+  target = tintsFrom(colors);
   if (reduceMotion.matches || document.hidden) {
-    current = target;
+    tints = target;
     target = null;
-    draw(performance.now());
+    draw(performance.now(), false);
   }
 }
