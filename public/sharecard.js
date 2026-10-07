@@ -149,42 +149,53 @@ function brassPlate(ctx, x, y, text) {
   ctx.fillText(text, x + 32, y + 27);
 }
 
-/** Boîte de jeu en semi-3D : tranche à gauche, jaquette de face. */
+/**
+ * Boîte de jeu comme sur l'étagère du profil : jaquette légèrement tournée (rotateY 20°),
+ * fine tranche sombre à gauche, charnière claire et reflet en biais.
+ */
 function gameBox(ctx, img, x, y, w, h) {
-  const spine = 16;
+  const spine = 7;
+  const fw = w - spine;
+  const fx = x + spine;
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-  ctx.shadowBlur = 22;
-  ctx.shadowOffsetY = 10;
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 12;
   ctx.fillStyle = '#2a1d14';
-  ctx.fillRect(x, y, w, h);
+  ctx.fillRect(fx, y, fw, h);
   ctx.restore();
 
-  // Tranche
+  // Tranche, vue de biais
   ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x - spine, y + 7);
-  ctx.lineTo(x, y);
-  ctx.lineTo(x, y + h);
-  ctx.lineTo(x - spine, y + h - 3);
+  ctx.moveTo(x, y + 3);
+  ctx.lineTo(fx, y);
+  ctx.lineTo(fx, y + h);
+  ctx.lineTo(x, y + h - 2);
   ctx.closePath();
   ctx.clip();
-  ctx.fillStyle = '#2a1d14';
-  ctx.fillRect(x - spine, y, spine, h);
-  if (img) ctx.drawImage(img, x - spine, y, (img.width * h) / img.height, h);
-  ctx.fillStyle = 'rgba(10,6,3,0.6)';
-  ctx.fillRect(x - spine, y, spine, h);
+  ctx.fillStyle = '#1e140c';
+  ctx.fillRect(x, y, spine, h);
+  if (img) ctx.drawImage(img, 0, 0, img.width * 0.08, img.height, x, y, spine, h);
+  ctx.fillStyle = 'rgba(10,6,3,0.55)';
+  ctx.fillRect(x, y, spine, h);
   ctx.restore();
 
-  // Face
-  if (img) drawCover(ctx, img, x, y, w, h, 3);
+  // Face : jaquette, charnière, reflet
+  if (img) drawCover(ctx, img, fx, y, fw, h, 2);
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
-  ctx.fillRect(x, y, 5, h);
+  ctx.fillRect(fx, y, 5, h);
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(x + 5, y, 1, h);
-  // Reflet de la lampe sur le plastique
-  ctx.fillStyle = gradient(ctx, x, y, x + w, y + h, ['rgba(255,236,200,0.16)', 'rgba(255,236,200,0)', 'rgba(255,236,200,0)']);
-  ctx.fillRect(x, y, w, h);
+  ctx.fillRect(fx + 5, y, 1, h);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(fx + fw - 1, y, 1, h);
+  const gloss = ctx.createLinearGradient(fx, y, fx + fw * 0.9, y + h * 0.42);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.2)');
+  gloss.addColorStop(0.32, 'rgba(255,255,255,0)');
+  gloss.addColorStop(0.72, 'rgba(255,255,255,0)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0.07)');
+  ctx.fillStyle = gloss;
+  ctx.fillRect(fx, y, fw, h);
 }
 
 async function drawCard({ player, rank, plats, stats, featured }) {
@@ -364,8 +375,8 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   }
 
   // Les boîtes, avec leur halo de rareté
-  const bw = 136;
-  const bh = 204;
+  const bw = 124;
+  const bh = 186;
   const gap = (nw - featured.length * bw) / (featured.length + 1);
   const boxX = (i) => nx + gap * (i + 1) + bw * i + 8;
   featured.forEach((f, i) => {
@@ -374,9 +385,9 @@ async function drawCard({ player, rank, plats, stats, featured }) {
     const h = halo(f.rarity);
     if (h) {
       ctx.save();
-      ctx.filter = 'blur(22px)';
-      ctx.fillStyle = `rgba(${h.rgb},${(h.a * 0.6).toFixed(2)})`;
-      roundRect(ctx, x - 26, y - 26, bw + 44, bh + 30, 28);
+      ctx.filter = 'blur(20px)';
+      ctx.fillStyle = `rgba(${h.rgb},${(h.a * 0.45).toFixed(2)})`;
+      roundRect(ctx, x - 12, y - 16, bw + 24, bh + 16, 20);
       ctx.fill();
       ctx.restore();
     }
@@ -387,9 +398,9 @@ async function drawCard({ player, rank, plats, stats, featured }) {
     ctx.restore();
     gameBox(ctx, covers[i], x, y, bw, bh);
     if (h) {
-      ctx.strokeStyle = `rgba(${h.rgb},${(h.a * 0.6).toFixed(2)})`;
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(x + 0.75, y + 0.75, bw - 1.5, bh - 1.5);
+      ctx.strokeStyle = `rgba(${h.rgb},${(h.a * 0.4).toFixed(2)})`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 7.5, y + 0.5, bw - 8, bh - 1);
     }
   });
 
