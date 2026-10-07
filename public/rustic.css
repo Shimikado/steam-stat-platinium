@@ -620,12 +620,12 @@ body::after {
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.9);
 }
 
-/* Lumière qui vient de derrière le disque : une lueur douce qui déborde du bord,
-   avec de légers rayons qui tournent lentement. Couleur et intensité selon la rareté. */
+/* Lumière douce qui vient de derrière le disque : une lueur à peine plus large que lui.
+   Couleur et intensité selon la rareté. */
 .disc-tray::after {
   content: '';
   position: absolute;
-  inset: -28%;
+  inset: -16%;
   z-index: 0;
   border-radius: 50%;
   pointer-events: none;
@@ -633,51 +633,61 @@ body::after {
 }
 
 .disc-tray[class*='rare-']::after {
-  opacity: var(--halo-a);
-  background:
-    repeating-conic-gradient(
-      from 0deg,
-      rgb(var(--halo) / 0.22) 0deg 4deg,
-      transparent 9deg 18deg
-    ),
-    radial-gradient(
-      closest-side,
-      rgb(var(--halo) / 0.75) 55%,
-      rgb(var(--halo) / 0.35) 68%,
-      rgb(var(--halo) / 0.1) 84%,
-      transparent 100%
-    );
-  -webkit-mask: radial-gradient(closest-side, #000 55%, transparent 100%);
-  mask: radial-gradient(closest-side, #000 55%, transparent 100%);
-  filter: blur(6px);
+  opacity: calc(var(--halo-a) * 0.55);
+  background: radial-gradient(
+    closest-side,
+    rgb(var(--halo) / 0.7) 66%,
+    rgb(var(--halo) / 0.22) 78%,
+    rgb(var(--halo) / 0.06) 90%,
+    transparent 100%
+  );
+  filter: blur(8px);
   mix-blend-mode: screen;
-  animation:
-    disc-rays 90s linear infinite,
-    disc-glow 5s ease-in-out infinite alternate;
-}
-
-@keyframes disc-rays {
-  to {
-    rotate: 360deg;
-  }
+  animation: disc-glow 6s ease-in-out infinite alternate;
 }
 
 @keyframes disc-glow {
   to {
-    scale: 0.94;
-    filter: blur(9px) brightness(0.8);
+    opacity: calc(var(--halo-a) * 0.35);
+  }
+}
+
+/* Reflet précieux : une tache de lumière chaude qui glisse lentement sur la surface du disque */
+.disc-tray[class*='rare-'] .disc-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse 34% 16% at 30% 26%, rgb(var(--halo) / 0.55), transparent 70%),
+    radial-gradient(ellipse 10% 5% at 30% 26%, rgb(255 255 255 / 0.5), transparent 70%);
+  opacity: calc(var(--halo-a) * 0.9);
+  rotate: -35deg;
+  animation: disc-glare 9s ease-in-out infinite alternate;
+}
+
+@keyframes disc-glare {
+  from {
+    rotate: -45deg;
+    opacity: calc(var(--halo-a) * 0.45);
+  }
+  to {
+    rotate: 15deg;
+    opacity: var(--halo-a);
   }
 }
 
 /* Le bord du disque accroche un peu de cette lumière */
 .disc-tray[class*='rare-'] .disc {
   box-shadow:
-    0 0 0 1px rgb(var(--halo) / calc(var(--halo-a) * 0.35)),
+    0 0 0 1px rgb(var(--halo) / calc(var(--halo-a) * 0.3)),
     0 6px 18px rgba(0, 0, 0, 0.45);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .disc-tray::after {
+  .disc-tray::after,
+  .disc-shine::after {
     animation: none !important;
   }
 }
