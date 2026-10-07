@@ -1070,6 +1070,9 @@ body::after {
   background:
     radial-gradient(ellipse 50% 9px at 50% calc(100% - 12px), rgb(var(--halo, 255 214 160) / 0.35), transparent 100%),
     radial-gradient(ellipse 46% 100% at 50% 0, rgb(var(--halo, 255 214 160) / 0.16), transparent 75%);
+  /* Le faisceau naît dans l'ombre : pas de coupure nette en haut */
+  -webkit-mask: linear-gradient(to bottom, transparent, #000 40%);
+  mask: linear-gradient(to bottom, transparent, #000 40%);
   opacity: calc(0.55 + var(--halo-a, 0.3) * 0.45);
   transition: opacity 0.4s ease;
 }
