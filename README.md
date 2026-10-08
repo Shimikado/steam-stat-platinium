@@ -22,6 +22,9 @@ npm start              # http://localhost:3000
 - Temps de jeu total, jeux possédés, jamais lancés, 2 dernières semaines, temps sur Steam Deck
 - **Ambiance** : étagères en bois sombre, papier crème et laiton. Les platines sont rangés comme des boîtes de jeux en semi-3D (jaquette et tranche), dans la vitrine comme dans la salle des trophées.
 - **Temps et difficulté du 100 %** via l'API publique de [Steam Hunters](https://steamhunters.com) : temps médian, part de chasseurs ayant tout débloqué, succès impossibles, DLC payants (cache 7 jours, hors quota Steam).
+- **Score de chasseur** : somme des points Steam Hunters des succès débloqués (un succès rare rapporte plus). Platines comptés en une requête pour 100 jeux ; les jeux entamés sont d'abord estimés au prorata, puis affinés en arrière-plan (une requête toutes les 2,5 s, cache partagé 30 jours) pour respecter la limite de Steam Hunters.
+- **Reliques** : succès débloqués devenus impossibles à obtenir (serveurs fermés, jeux retirés…), et platines que plus personne ne peut décrocher.
+- **Rareté des platines** : part réelle des chasseurs Steam Hunters ayant platiné le jeu parmi ceux qui l'ont commencé (à partir de 30 joueurs), sinon majorant d'après le succès le plus rare.
 - **Vitrine des platines** : bannières « Dernier platine » et « Platine le plus rare », cartes holographiques et rareté de chaque platine. La rareté est une borne haute : on prend le succès le plus rare du jeu, d'après les statistiques mondiales de Steam.
 - **Presque platinés** (≥ 75 %), avec le nombre de succès restants
 - **Célébration des nouveautés** : sur ton propre profil, l'app compare avec ta visite précédente (mémorisée dans le navigateur). Les nouveaux platines et les changements de rang déclenchent des confettis et une étiquette « Nouveau » dans la vitrine.
@@ -55,7 +58,7 @@ Avec `DATABASE_URL` (Postgres, par exemple l'offre gratuite de [Neon](https://ne
 - le cache des succès, des pourcentages mondiaux et des schémas survit aux redémarrages de Render, donc les chargements sont quasi instantanés après une mise en veille ;
 - les succès ajoutés par une mise à jour sont détectés côté serveur, partagés entre tous les visiteurs ;
 - objectifs, marquages DLC et historique des platines sont liés au compte Steam connecté et synchronisés entre appareils ;
-- chaque profil ouvert dans l'app enregistre un résumé (platines, plus rare), calculé par le serveur depuis son cache. Le bloc Amis affiche le nombre de platines des amis déjà analysés et un **classement** entre eux.
+- chaque profil ouvert dans l'app enregistre un résumé (platines, plus rare), calculé par le serveur depuis son cache. Le bloc Amis affiche le nombre de platines des amis déjà analysés et un **classement** entre eux, au score de chasseur.
 
 Les tables sont créées au démarrage. Sans base, l'app garde son fonctionnement local (navigateur et disque).
 

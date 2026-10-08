@@ -76,7 +76,13 @@ export function fmtDuration(sec) {
   return `${(d / 365.25).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} ans`;
 }
 
-export const fmtRarity = (p) => `${p < 10 ? p.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) : Math.round(p)} %`;
+export const fmtRarity = (p) =>
+  p < 0.01
+    ? '< 0,01 %'
+    : `${p < 10 ? p.toLocaleString('fr-FR', { maximumFractionDigits: p < 1 ? 2 : 1 }) : Math.round(p)} %`;
+
+/** « 13,7 M » : grands nombres abrégés (score de chasseur). */
+export const fmtCompact = (n) => new Intl.NumberFormat('fr-FR', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
 /** Envoi JSON (PUT/POST) vers l'API ; renvoie la réponse décodée, ou null pour un 204. */
 export async function sendJSON(url, method, body) {

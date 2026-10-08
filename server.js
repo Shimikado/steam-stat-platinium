@@ -4,6 +4,7 @@ import cookieSession from 'cookie-session';
 import { rateLimit } from 'express-rate-limit';
 import {
   SteamError,
+  computeScore,
   computeSummary,
   getAchievementSummaries,
   getArt,
@@ -22,6 +23,7 @@ import {
   importMarks,
   initDb,
   saveSnapshot,
+  saveScore,
   saveSummary,
   setMark,
 } from './src/db.js';
@@ -188,6 +190,16 @@ api.post('/summary/:steamid', async (req, res) => {
   if (!summary) throw new SteamError('Analyse incomplète', 409);
   await saveSummary(summary);
   res.json(summary);
+});
+
+// Score de chasseur (points Steam Hunters) et reliques, depuis le cache des succès.
+// Le premier calcul d'un profil peut prendre un moment : un appel Steam Hunters par jeu commencé.
+api.post('/score/:steamid', async (req, res) => {
+  const id = steamidParam(req);
+  const result = await computeScore(id);
+  if (!result) throw new SteamError('Analyse incomplète', 409);
+  if (DB) await saveScore(id, result.score, result.relics.reduce((t, r) => t + r.count, 0)).catch(() => {});
+  res.json(result);
 });
 
 api.get('/summaries', async (req, res) => {

@@ -298,35 +298,47 @@ async function getGlobalPercentages(appid) {
 
 // ---------------------------------------------------------------- Steam Hunters (temps et difficulté du 100 %)
 
+const SH_HEADERS = { Accept: 'application/json', 'User-Agent': 'SteamStats (vitrine de platines)' };
 const hunterCache = new TtlCache({ ttlMs: 7 * DAY, ns: 'hunters' });
+
+// Steam Hunters limite fortement les requêtes (réponse 429 + Retry-After) : on respecte la pause demandée.
+let shPausedUntil = 0;
+const shPaused = () => Date.now() < shPausedUntil;
+
+async function shFetch(path) {
+  if (shPaused()) return { retry: true };
+  try {
+    const res = await fetch(`https://steamhunters.com/api/${path}`, { headers: SH_HEADERS, signal: AbortSignal.timeout(15000) });
+    if (res.status === 429) {
+      shPausedUntil = Date.now() + (Number(res.headers.get('retry-after')) || 60) * 1000;
+      return { retry: true };
+    }
+    if (res.status === 404) return { data: null };
+    return { data: await res.json() }; // page de vérification anti-robots → JSON invalide → on réessaiera plus tard
+  } catch {
+    return { retry: true };
+  }
+}
 
 /**
  * Statistiques de complétion publiées par Steam Hunters (steamhunters.com), pour ses membres :
  * temps médian pour atteindre 100 %, part de joueurs ayant tout débloqué, succès impossibles,
- * présence de DLC payants. Ne consomme pas le quota de la clé Steam.
- * Renvoie { appid: { median, perfected, started, unobtainable, paidDlc } | null }.
+ * présence de DLC payants, points du jeu. Ne consomme pas le quota de la clé Steam.
+ * Renvoie { appid: { median, perfected, started, unobtainable, paidDlc, points, count } | null }.
  */
 export async function getHunterStats(appids) {
   const out = {};
   const missing = [];
   for (const appid of appids) {
     const cached = await hunterCache.get(appid);
-    if (cached === undefined) missing.push(appid);
+    // Les entrées d'avant le score n'ont pas les points du jeu : on les rafraîchit.
+    if (cached === undefined || (cached && cached.points === undefined)) missing.push(appid);
     else out[appid] = cached;
   }
 
   for (let i = 0; i < missing.length; i += 100) {
     const ids = missing.slice(i, i + 100);
-    let list;
-    try {
-      const res = await fetch(`https://steamhunters.com/api/apps?appIds=${ids.join(',')}`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'SteamStats (vitrine de platines)' },
-        signal: AbortSignal.timeout(15000),
-      });
-      list = await res.json(); // page de vérification anti-robots → JSON invalide → on réessaiera plus tard
-    } catch {
-      continue;
-    }
+    const { data: list } = await shFetch(`apps?appIds=${ids.join(',')}`);
     if (!Array.isArray(list)) continue;
     const byId = new Map(list.map((g) => [g.appId, g]));
     for (const appid of ids) {
@@ -338,6 +350,8 @@ export async function getHunterStats(appids) {
             started: g.playersStartedCount ?? 0,
             unobtainable: g.unobtainableAchievementCount ?? 0,
             paidDlc: Boolean(g.hasPaidDlc),
+            points: g.points ?? 0, // somme des points de ses succès
+            count: g.achievementCount ?? 0,
           }
         : null;
       out[appid] = stats;
@@ -345,6 +359,125 @@ export async function getHunterStats(appids) {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------- Steam Hunters : points des succès
+
+const pointsCache = new TtlCache({ ttlMs: 30 * DAY, ns: 'shpoints' });
+
+/** Télécharge les points des succès d'un jeu. Renvoie la table, ou undefined s'il faut réessayer plus tard. */
+async function fetchHunterPoints(appid) {
+  const { data, retry } = await shFetch(`apps/${appid}/achievements`);
+  if (retry || (data !== null && !Array.isArray(data))) return undefined;
+  const out = { p: {}, x: [] };
+  for (const a of data ?? []) {
+    out.p[a.apiName] = a.points ?? 0;
+    if (a.obtainability) out.x.push(a.apiName);
+  }
+  pointsCache.set(appid, out);
+  return out;
+}
+
+/**
+ * Points Steam Hunters des succès d'un jeu : plus un succès est rare chez les chasseurs, plus il rapporte.
+ * Les succès devenus impossibles à débloquer valent 0 et sont listés à part.
+ * Renvoie { p: { apiname: points }, x: [apiname impossible] }, ou null si indisponible pour l'instant.
+ */
+export async function getHunterPoints(appid) {
+  const cached = await pointsCache.get(appid);
+  if (cached !== undefined) return cached;
+  return (await fetchHunterPoints(appid)) ?? null;
+}
+
+// File d'attente : les points succès par succès arrivent au compte-gouttes, en arrière-plan,
+// puis profitent à tous les profils (cache partagé en base).
+const SH_GAP_MS = 2500;
+const pointsQueue = new Set();
+let pumping = false;
+
+function queuePoints(appids, { urgent = false } = {}) {
+  if (urgent) {
+    const rest = [...pointsQueue];
+    pointsQueue.clear();
+    for (const id of [...appids, ...rest]) pointsQueue.add(id);
+  } else {
+    for (const id of appids) pointsQueue.add(id);
+  }
+  pumpPoints();
+}
+
+async function pumpPoints() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    while (pointsQueue.size) {
+      if (shPaused()) await new Promise((ok) => setTimeout(ok, shPausedUntil - Date.now() + 500));
+      const [appid] = pointsQueue;
+      if ((await pointsCache.get(appid)) !== undefined || (await fetchHunterPoints(appid)) !== undefined) pointsQueue.delete(appid);
+      await new Promise((ok) => setTimeout(ok, SH_GAP_MS));
+    }
+  } finally {
+    pumping = false;
+  }
+}
+
+/**
+ * Score de chasseur, calculé depuis le cache des succès du joueur (aucun appel Steam) :
+ * somme des points Steam Hunters de ses succès débloqués.
+ * - jeu platiné : tous ses points (une seule requête Steam Hunters pour 100 jeux) ;
+ * - jeu entamé : points exacts de ses succès si on les a, sinon estimation au prorata,
+ *   le temps que la file d'attente les récupère.
+ * Relève aussi les « reliques » : succès débloqués qui ne peuvent plus l'être aujourd'hui.
+ * Renvoie null tant que l'analyse des succès ou Steam Hunters ne couvrent pas (presque) tout le profil.
+ */
+export async function computeScore(steamid) {
+  const profile = await getProfile(steamid);
+  const games = profile.games.filter((g) => g.hasStats);
+  const lists = [];
+  for (const g of games) {
+    const cached = await caches.achievements.get(`${steamid}:${g.appid}`);
+    if (cached !== undefined) lists.push([g.appid, cached.l ?? []]);
+  }
+  if (games.length && lists.length / games.length < 0.9) return null;
+
+  // Seuls les jeux où le joueur a débloqué quelque chose rapportent des points.
+  const started = lists.filter(([, list]) => list.some(([, achieved]) => achieved === 1));
+  const stats = await getHunterStats(started.map(([appid]) => appid));
+  if (started.length && started.filter(([appid]) => appid in stats).length / started.length < 0.9) return null;
+
+  let score = 0;
+  let estimated = 0;
+  const relics = [];
+  const toFetch = [];
+  const urgent = [];
+  for (const [appid, list] of started) {
+    const st = stats[appid];
+    if (!st) continue; // jeu inconnu de Steam Hunters
+    const unlocked = list.filter(([, achieved]) => achieved === 1);
+    const platinum = unlocked.length === list.length;
+    const pts = platinum && !st.unobtainable ? null : await pointsCache.get(appid);
+
+    if (platinum) score += st.points;
+    else if (pts) score += unlocked.reduce((t, [name]) => t + (pts.p[name] ?? 0), 0);
+    else {
+      score += list.length ? Math.round((st.points * unlocked.length) / list.length) : 0;
+      estimated++;
+      toFetch.push(appid);
+    }
+
+    if (st.unobtainable) {
+      if (platinum) relics.push({ appid, count: st.unobtainable, platinum: true });
+      else if (pts) {
+        const impossible = new Set(pts.x);
+        const count = unlocked.filter(([name]) => impossible.has(name)).length;
+        if (count) relics.push({ appid, count, platinum: false });
+      } else urgent.push(appid);
+    }
+  }
+  if (urgent.length) queuePoints(urgent, { urgent: true });
+  if (toFetch.length) queuePoints(toFetch);
+  relics.sort((x, y) => y.platinum - x.platinum || y.count - x.count);
+  return { steamid, score, estimated, pending: pointsQueue.size, relics };
 }
 
 // ---------------------------------------------------------------- visuels des jeux
@@ -462,14 +595,16 @@ export async function getDifficulties(steamid, appids) {
 }
 
 export async function getGameAchievements(steamid, appid) {
-  const [list, schema, schemaEn, global] = await Promise.all([
+  const [list, schema, schemaEn, global, points] = await Promise.all([
     getPlayerAchievementList(steamid, appid),
     getSchema(appid).catch(() => ({})),
     // Nom original anglais, pratique pour chercher un succès sur internet.
     getSchema(appid, 'english').catch(() => ({})),
     getGlobalPercentages(appid).catch(() => ({})),
+    getHunterPoints(appid),
   ]);
   if (!list) return { appid, achievements: [] };
+  const impossible = new Set(points?.x ?? []);
 
   const achievements = list.map(([apiname, achieved, unlocktime]) => {
     const s = schema[apiname] ?? {};
@@ -484,6 +619,8 @@ export async function getGameAchievements(steamid, appid) {
       achieved: achieved === 1,
       unlocktime: unlocktime || null,
       rarity: Number.isFinite(global[apiname]) ? global[apiname] : null,
+      points: points?.p[apiname] ?? null,
+      impossible: impossible.has(apiname),
     };
   });
   return { appid, achievements };

@@ -1227,3 +1227,105 @@ body::after {
   color: #ffc9a3;
   background: rgba(255, 120, 80, 0.16);
 }
+
+/* ---------------------------------------------------------------- score de chasseur et reliques */
+
+.tile.score .tile-value {
+  background: linear-gradient(180deg, #f8e2a8, #d9a75a 55%, #9c6a30);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tile.score .tile-value small {
+  margin-left: 0.25em;
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+}
+
+.ranking-score small {
+  margin-left: 3px;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Sceau de cire « Relique » : un succès ou un platine que plus personne ne peut obtenir */
+.relic-seal {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fbe9d2;
+  background: radial-gradient(circle at 35% 30%, #c2463a, #8c2219 60%, #5e140e);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 210, 190, 0.35),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.35),
+    0 0 14px rgba(194, 70, 58, 0.35);
+}
+
+.tile.relic {
+  border-color: rgba(194, 70, 58, 0.45);
+  background:
+    radial-gradient(260px 120px at 100% 0, rgba(194, 70, 58, 0.18), transparent 70%),
+    var(--grain),
+    var(--surface);
+}
+
+.tile.relic .tile-value {
+  color: #e8806f;
+}
+
+.notice-relic {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  background: linear-gradient(90deg, rgba(194, 70, 58, 0.16), rgba(194, 70, 58, 0.04));
+  border: 1px solid rgba(194, 70, 58, 0.4);
+}
+
+.notice-relic strong {
+  color: #f0a294;
+}
+
+.ach.is-impossible.locked {
+  opacity: 0.45;
+}
+
+.ach-impossible {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px dashed rgba(232, 128, 111, 0.6);
+  color: #e8806f;
+}
+
+.ach-points {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(217, 167, 90, 0.85);
+}
+
+/* Sur le cartel de la vitrine, le sceau est apposé en coin */
+.exhibit-label {
+  position: relative;
+}
+
+.exhibit-label .relic-seal {
+  position: absolute;
+  top: -11px;
+  right: -10px;
+  transform: rotate(8deg);
+}

@@ -18,6 +18,7 @@ import {
   rarityTier,
   rarityHalo,
   fmtRarity,
+  fmtCompact,
   DIFFICULTY_TIERS,
   difficultyTier,
   fmtDuration,
@@ -50,7 +51,9 @@ const state = {
   steamid: null,
   profile: null,
   ach: new Map(), // appid -> { total, unlocked, percent, times }
-  rarity: new Map(), // appid -> % max de joueurs ayant platiné
+  rarity: new Map(), // appid -> % de joueurs ayant platiné (exact chez les chasseurs, sinon majorant Steam)
+  rarityHunt: new Set(), // jeux dont la rareté vient de Steam Hunters (part réelle de chasseurs l'ayant platiné)
+  score: null, // score de chasseur { score, relics } (null = pas encore calculé, 'loading' = en cours)
   diff: new Map(), // appid -> { hardest, remaining, platinumMax } (difficulté du platine)
   diffScan: { done: 0, total: 0, running: false },
   added: new Map(), // appid -> { from, to, at } : succès ajoutés récemment par une mise à jour
@@ -299,6 +302,8 @@ async function loadProfile(steamid, { refresh = false } = {}) {
   state.profile = null;
   state.ach = new Map();
   state.rarity = new Map();
+  state.rarityHunt = new Set();
+  state.score = null;
   state.diff = new Map();
   state.diffScan = { done: 0, total: 0, running: false };
   state.added = new Map();
@@ -394,7 +399,7 @@ async function scanAchievements(token, refresh) {
   await Promise.all([loadDifficulty(token), loadHunters(token)]);
   if (token !== state.token) return;
   setAmbient(ambientSources());
-  publishSummary(token);
+  publishSummary(token).then(() => loadScore(token));
   if (token !== state.token) return;
   await loadNext(token);
   if (token !== state.token) return;
@@ -589,6 +594,9 @@ function tile({ label, value, unit = '', hint = '', cls = '' }) {
     </div>`;
 }
 
+const relicCount = () => (state.score?.relics ?? []).reduce((t, r) => t + r.count, 0);
+const relicPlatCount = () => (state.score?.relics ?? []).filter((r) => r.platinum).length;
+
 function renderTiles(s) {
   const games = state.profile.games.length;
   const hours = Math.round(s.totalMin / 60);
@@ -619,6 +627,29 @@ function renderTiles(s) {
               .join(' · ')
           : '',
     }),
+    tile({
+      cls: 'score',
+      label: `${icon('star')} Score de chasseur`,
+      value:
+        state.score?.score != null
+          ? `${state.score.estimated ? '≈ ' : ''}${fmtCompact(state.score.score)}`
+          : state.score === 'loading' || state.scan.running
+            ? '…'
+            : '—',
+      unit: state.score?.score != null ? 'pts' : '',
+      hint:
+        state.score === 'loading'
+          ? 'Calcul des points…'
+          : state.score?.estimated
+            ? `Points Steam Hunters · ${nf.format(state.score.estimated)} jeu${state.score.estimated > 1 ? 'x' : ''} encore estimé${state.score.estimated > 1 ? 's' : ''}, affinage en cours`
+            : 'Points Steam Hunters : plus un succès est rare, plus il rapporte',
+    }),
+    relicCount() ? tile({
+      cls: 'relic',
+      label: 'Reliques',
+      value: nf.format(relicCount()),
+      hint: `succès devenus impossibles à obtenir${relicPlatCount() ? ` · dont ${relicPlatCount()} platine${relicPlatCount() > 1 ? 's' : ''}` : ''}`,
+    }) : '',
     tile({
       label: 'Complétion moyenne',
       value: s.avgCompletion != null ? Math.round(s.avgCompletion) : pending,
@@ -751,7 +782,7 @@ async function loadDifficulty(token) {
       if (token !== state.token) return;
       for (const r of res) {
         state.diff.set(r.appid, r);
-        if (r.platinumMax != null) state.rarity.set(r.appid, r.platinumMax);
+        if (r.platinumMax != null && !state.rarityHunt.has(r.appid)) state.rarity.set(r.appid, r.platinumMax);
       }
     } catch {
       break; // la difficulté est un bonus : on garde ce qui a pu être calculé
@@ -852,7 +883,7 @@ function renderHall(s) {
   }
   s ??= compute();
   const scanning = state.scan.running ? `Préparation de la salle… ${state.scan.done} / ${state.scan.total} jeux analysés` : '';
-  const key = `${state.steamid}|${scanning}|${s.platinum.map((p) => p.g.appid).join(',')}|${state.rarity.size}`;
+  const key = `${state.steamid}|${scanning}|${s.platinum.map((p) => p.g.appid).join(',')}|${state.rarity.size}|${state.hunters.size}`;
   if (key === lastHallKey) return;
   const firstOpen = hall.hidden;
   lastHallKey = key;
@@ -862,6 +893,8 @@ function renderHall(s) {
     player: state.profile.player,
     platinum: s.platinum,
     rarity: state.rarity,
+    rarityLabel,
+    isRelic,
     pill: rarityPill,
     scanning,
   })}</div>`;
@@ -929,6 +962,8 @@ function renderGoals(s) {
 // ---------------------------------------------------------------- Steam Hunters
 
 /** Temps médian du 100 % et succès impossibles (Steam Hunters), pour les jeux platinés et en cours. */
+const HUNT_MIN_STARTED = 30; // en dessous, la part de chasseurs ayant platiné n'est pas fiable
+
 async function loadHunters(token) {
   const s = compute();
   const ids = [...s.platinum, ...s.progress].map((x) => x.g.appid).filter((id) => !state.hunters.has(id));
@@ -936,7 +971,14 @@ async function loadHunters(token) {
     try {
       const res = await getJSON(`/api/hunters?appids=${ids.slice(i, i + 300).join(',')}`);
       if (token !== state.token) return;
-      for (const [id, stats] of Object.entries(res)) state.hunters.set(Number(id), stats);
+      for (const [id, stats] of Object.entries(res)) {
+        state.hunters.set(Number(id), stats);
+        // Rareté du platine : part réelle des chasseurs qui l'ont fini parmi ceux qui l'ont commencé.
+        if (stats?.started >= HUNT_MIN_STARTED) {
+          state.rarity.set(Number(id), (Math.max(stats.perfected, 1) / stats.started) * 100);
+          state.rarityHunt.add(Number(id));
+        }
+      }
     } catch {
       return; // données facultatives
     }
@@ -950,6 +992,11 @@ const medianLabel = (appid) => {
   return h?.median ? `≈ ${fmtHours(h.median)}` : null;
 };
 const isImpossible = (appid) => (state.hunters.get(appid)?.unobtainable ?? 0) > 0;
+/** Platine « relique » : le joueur l'a, mais certains de ses succès ne peuvent plus être débloqués. */
+const isRelic = (appid) => isImpossible(appid) && statusOf(state.profile.games.find((g) => g.appid === appid)).kind === 'platinum';
+
+/** « 0,4 % » (part réelle chez les chasseurs) ou « ≤ 3 % » (majorant d'après le succès le plus rare). */
+const rarityLabel = (appid) => `${state.rarityHunt.has(appid) ? '' : '≤ '}${fmtRarity(state.rarity.get(appid))}`;
 
 // ---------------------------------------------------------------- prochain platine
 
@@ -1152,6 +1199,7 @@ function shareCardData() {
       appid: p.g.appid,
       name: p.g.name,
       rarity: state.rarity.get(p.g.appid) ?? null,
+      rarityLabel: state.rarity.has(p.g.appid) ? rarityLabel(p.g.appid) : null,
       pinned: state.pins.has(p.g.appid),
     })),
     // La carte ne parle que des platines : rien sur le reste de la bibliothèque.
@@ -1170,7 +1218,7 @@ function platinumStats(s) {
     ultra
       ? [nf.format(ultra), ultra > 1 ? 'platines ultra-rares' : 'platine ultra-rare']
       : rarities.length
-        ? [`≤ ${fmtRarity(Math.min(...rarities))}`, 'pour le plus rare']
+        ? [rarityLabel(s.platinum.filter((p) => state.rarity.has(p.g.appid)).sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0].g.appid), 'pour le plus rare']
         : null,
   ].filter(Boolean);
 }
@@ -1264,6 +1312,28 @@ async function publishSummary(token) {
   }
 }
 
+/** Score de chasseur (points Steam Hunters des succès débloqués) et reliques. */
+async function loadScore(token, round = 0) {
+  if (!round) {
+    state.score = 'loading';
+    update();
+  }
+  try {
+    const res = await sendJSON(`/api/score/${state.steamid}`, 'POST', {});
+    if (token !== state.token) return;
+    state.score = res;
+    const sum = state.summaries.get(state.steamid);
+    if (sum) state.summaries.set(state.steamid, { ...sum, score: res.score });
+    if ($('#friendsBody')) renderFriends();
+    // Des jeux sont encore estimés : leurs points arrivent en arrière-plan, on affine régulièrement.
+    if (res.estimated && round < SCORE_ROUNDS) setTimeout(() => token === state.token && loadScore(token, round + 1), 90_000);
+  } catch {
+    if (token === state.token && !round) state.score = null;
+  }
+  if (token === state.token) update();
+}
+const SCORE_ROUNDS = 20;
+
 function renderFriends() {
   const known = state.friends.filter((f) => state.summaries.has(f.steamid)).length;
   const views = $('#friendViews');
@@ -1317,7 +1387,7 @@ function renderRanking() {
   const rows = [
     ...state.friends.filter((f) => state.summaries.has(f.steamid)).map((f) => ({ ...state.summaries.get(f.steamid), avatar: f.avatar })),
     ...(self ? [{ ...self, isSelf: true }] : []),
-  ].sort((a, b) => b.platinum - a.platinum || (a.rarestPct ?? 101) - (b.rarestPct ?? 101));
+  ].sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || b.platinum - a.platinum || (a.rarestPct ?? 101) - (b.rarestPct ?? 101));
 
   if (rows.length < 2) {
     $('#friendsBody').innerHTML = `<p class="friends-empty">Ouvre le profil d’un ami pour l’ajouter au classement.</p>`;
@@ -1337,10 +1407,15 @@ function renderRanking() {
             <span class="ranking-name">${esc(r.name)}</span>
             <span class="ranking-sub">
               <span class="rank-chip tone-${rank.tone}">${rank.name}</span>
-              ${r.rarestPct != null ? `<span>plus rare ≤ ${fmtRarity(r.rarestPct)}</span>` : ''}
+              ${r.score != null ? `<span>${icon('trophy')} ${nf.format(r.platinum)} platine${r.platinum > 1 ? 's' : ''}</span>` : ''}
+              ${r.score == null && r.rarestPct != null ? `<span>plus rare ≤ ${fmtRarity(r.rarestPct)}</span>` : ''}
             </span>
           </span>
-          <span class="ranking-score">${icon('trophy')}${nf.format(r.platinum)}</span>
+          ${
+            r.score != null
+              ? `<span class="ranking-score" title="${nf.format(r.score)} points Steam Hunters">${fmtCompact(r.score)}<small>pts</small></span>`
+              : `<span class="ranking-score">${icon('trophy')}${nf.format(r.platinum)}</span>`
+          }
         </a>
       </li>`;
     })
@@ -1355,8 +1430,12 @@ function rarityPill(appid, { long = false } = {}) {
   const p = state.rarity.get(appid);
   const tier = rarityTier(p);
   if (!tier) return '';
-  const text = long ? `${tier.label} · ≤ ${fmtRarity(p)} des joueurs` : `≤ ${fmtRarity(p)}`;
-  return `<span class="rarity-pill tier-${tier.id}" title="Au plus ${fmtRarity(p)} des joueurs ont platiné ce jeu (d’après son succès le plus rare)">${text}</span>`;
+  const hunt = state.rarityHunt.has(appid);
+  const text = long ? `${tier.label} · ${rarityLabel(appid)} des ${hunt ? 'chasseurs' : 'joueurs'}` : rarityLabel(appid);
+  const title = hunt
+    ? `${fmtRarity(p)} des chasseurs Steam Hunters qui ont commencé ce jeu l’ont platiné`
+    : `Au plus ${fmtRarity(p)} des joueurs ont platiné ce jeu (d’après son succès le plus rare)`;
+  return `<span class="rarity-pill tier-${tier.id}" title="${title}">${text}</span>`;
 }
 
 function featureCard(label, { g, a, date, num }) {
@@ -1673,7 +1752,9 @@ function renderFacts(s) {
     facts.push({
       label: 'Platine le plus rare',
       value: rarest.g.name,
-      hint: `au plus ${fmtRarity(state.rarity.get(rarest.g.appid))} des joueurs l’ont platiné`,
+      hint: state.rarityHunt.has(rarest.g.appid)
+        ? `${fmtRarity(state.rarity.get(rarest.g.appid))} des chasseurs l’ont platiné`
+        : `au plus ${fmtRarity(state.rarity.get(rarest.g.appid))} des joueurs l’ont platiné`,
       appid: rarest.g.appid,
     });
   }
@@ -2002,6 +2083,10 @@ function gameNotices(g, st) {
     ].filter(Boolean);
     out.push(`<div class="notice-hunt">${icon('clock')}<span>${parts.join(' · ')} <a href="https://steamhunters.com/apps/${g.appid}/achievements" target="_blank" rel="noopener">Steam Hunters ↗</a></span></div>`);
   }
+  const relicHunt = st.kind === 'platinum' ? state.hunters.get(g.appid) : null;
+  if (relicHunt?.unobtainable) {
+    out.push(`<div class="notice-relic"><span class="relic-seal">Relique</span><span><strong>Platine de collection</strong> : ${relicHunt.unobtainable} succès ne peu${relicHunt.unobtainable > 1 ? 'vent' : 't'} plus être débloqué${relicHunt.unobtainable > 1 ? 's' : ''} aujourd’hui. Plus personne ne pourra décrocher ce platine.</span></div>`);
+  }
   if (st.kind !== 'platinum' && hunt?.unobtainable) {
     out.push(`<div class="notice-dlc is-on">${icon('lock')}<span><strong>${hunt.unobtainable} succès impossible${hunt.unobtainable > 1 ? 's' : ''} à obtenir</strong> : le platine n’est plus faisable.</span></div>`);
   }
@@ -2027,13 +2112,14 @@ function renderAchievements(list, isPlatinum) {
     return;
   }
   const unlocked = list.filter((x) => x.achieved).sort((a, b) => (b.unlocktime ?? 0) - (a.unlocktime ?? 0));
-  const locked = list.filter((x) => !x.achieved).sort((a, b) => (b.rarity ?? -1) - (a.rarity ?? -1));
+  // Les succès impossibles passent en dernier : inutile de les viser.
+  const locked = list.filter((x) => !x.achieved).sort((a, b) => a.impossible - b.impossible || (b.rarity ?? -1) - (a.rarity ?? -1));
   const rarest = unlocked.filter((x) => x.rarity != null).sort((a, b) => a.rarity - b.rarity)[0];
 
   const row = (x) => {
     const secret = x.hidden && !x.achieved;
     return `
-      <div class="ach ${x.achieved ? '' : 'locked todo'}">
+      <div class="ach ${x.achieved ? '' : 'locked todo'} ${x.impossible ? 'is-impossible' : ''}">
         ${x.icon ? `<img src="${esc(x.icon)}" alt="" loading="lazy">` : `<span class="ach-icon">${icon('lock')}</span>`}
         <div style="min-width:0">
           <div class="ach-name">${esc(x.name)}${
@@ -2044,7 +2130,14 @@ function renderAchievements(list, isPlatinum) {
           <div class="ach-desc">${secret ? '<em>Succès caché</em>' : esc(x.description)}</div>
         </div>
         <div class="ach-side">
-          ${rarityTag(x.rarity)}
+          ${
+            x.impossible
+              ? x.achieved
+                ? '<span class="relic-seal" title="Ce succès ne peut plus être débloqué aujourd’hui : tu fais partie des derniers à l’avoir">Relique</span>'
+                : '<span class="ach-impossible" title="Ce succès ne peut plus être débloqué">Impossible</span>'
+              : rarityTag(x.rarity)
+          }
+          ${x.points ? `<span class="ach-points" title="Points Steam Hunters">${nf.format(x.points)} pts</span>` : ''}
           <div>${x.achieved ? fmtDate(x.unlocktime) : 'Verrouillé'}</div>
         </div>
       </div>`;

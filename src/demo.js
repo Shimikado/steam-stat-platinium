@@ -66,6 +66,9 @@ const games = CATALOG.map(([appid, name], i) => {
   };
 });
 
+// Un platine « relique » en démo : son premier succès ne peut plus être débloqué aujourd'hui.
+const RELIC = games.find((g) => g._ach.total && g._ach.unlocked === g._ach.total)?.appid;
+
 /** Succès fictifs d'un jeu, déterministes pour que difficulté et fiche jeu concordent. */
 function demoAchievements(g) {
   if (!g) return [];
@@ -83,6 +86,8 @@ function demoAchievements(g) {
     achieved: unlockedSet.has(i),
     unlocktime: unlockedSet.has(i) ? g._ach.times[t++] : null,
     rarity: Math.round(rand() ** 2 * 1000) / 10 + 0.1,
+    points: Math.round(20 + rand() * 400),
+    impossible: g.appid === RELIC && i === 0,
   }));
 }
 
@@ -153,6 +158,11 @@ export function demoRouter() {
         };
       }),
     );
+  });
+
+  r.post('/score/:steamid', (req, res) => {
+    const score = games.reduce((t, g) => t + demoAchievements(g).reduce((u, a) => u + (a.achieved ? a.points : 0), 0), 0);
+    res.json({ steamid: DEMO_ID, score, relics: RELIC ? [{ appid: RELIC, count: 1, platinum: true }] : [] });
   });
 
   r.get('/game/:steamid/:appid', (req, res) => {

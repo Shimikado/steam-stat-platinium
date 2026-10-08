@@ -413,7 +413,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   featured.forEach((f, i) => {
     const cx = boxX(i) + bw / 2;
     if (f.rarity != null) {
-      const label = plain(`≤ ${fmtRarity(f.rarity)}`);
+      const label = plain(f.rarityLabel ?? `≤ ${fmtRarity(f.rarity)}`);
       ctx.font = `700 15px ${DISPLAY}`;
       paperTag(ctx, cx, plankY + 6, ctx.measureText(label).width + 18, 21, i % 2 ? 1.5 : -1.5, (c) => {
         c.fillStyle = INK;

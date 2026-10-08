@@ -79,6 +79,11 @@ async function migrate() {
     alter table user_marks drop constraint if exists user_marks_kind_check;
     alter table user_marks add constraint user_marks_kind_check check (kind in ('goal', 'dlc', 'pin'));
   `);
+  // Score de chasseur (points Steam Hunters) et nombre de succès « reliques », pour le classement.
+  await pool.query(`
+    alter table profile_summaries add column if not exists score bigint;
+    alter table profile_summaries add column if not exists relics integer;
+  `);
   await cleanup();
   setInterval(cleanup, 12 * 3600 * 1000).unref();
 }
@@ -283,10 +288,14 @@ export async function saveSummary(s) {
   );
 }
 
+export async function saveScore(steamid, score, relics) {
+  await pool.query(`update profile_summaries set score = $2, relics = $3 where steamid = $1`, [steamid, score, relics]);
+}
+
 export async function getSummaries(steamids) {
   if (!steamids.length) return [];
   const { rows } = await pool.query(
-    `select steamid, name, avatar, platinum, latest_appid, latest_at, rarest_appid, rarest_pct, updated_at
+    `select steamid, name, avatar, platinum, latest_appid, latest_at, rarest_appid, rarest_pct, score, relics, updated_at
      from profile_summaries where steamid = any($1::text[])`,
     [steamids],
   );
@@ -299,6 +308,8 @@ export async function getSummaries(steamids) {
     latestAt: r.latest_at == null ? null : Number(r.latest_at),
     rarestAppid: r.rarest_appid,
     rarestPct: r.rarest_pct,
+    score: r.score == null ? null : Number(r.score),
+    relics: r.relics,
     updatedAt: Math.floor(new Date(r.updated_at).getTime() / 1000),
   }));
 }
