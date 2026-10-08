@@ -1,4 +1,4 @@
-import { esc, icon, nf, boxHTML, fmtDate, fmtHours, fmtDuration, rarityHalo } from './utils.js';
+import { esc, icon, nf, boxHTML, fmtDate, fmtHours, fmtDuration, fmtPoints, rarityHalo } from './utils.js';
 
 // Salle des trophées : une page plein écran sous la lampe, avec une vitrine éclairée par année
 // où chaque platine est exposé en grand, avec son cartel comme dans un musée.
@@ -14,13 +14,13 @@ const medal = (cls = '') => `
     ${SPARKS.map(([x, y, d]) => `<i style="--x:${x}px;--y:${y}px;animation-delay:${d}s">${icon('sparkle')}</i>`).join('')}
   </span>`;
 
-function exhibit(p, i, { rarity, pill, isRelic }) {
+function exhibit(p, i, { points, pill, isRelic }) {
   const { g, a, date, num, hunt } = p;
   const meta = [g.playtime ? `${fmtHours(g.playtime)} de jeu` : '', `${fmtDuration(hunt)} de chasse`, `${a.total} succès`]
     .filter(Boolean)
     .join(' · ');
   return `
-    <button class="exhibit ${rarityHalo(rarity.get(g.appid))}" data-appid="${g.appid}" type="button" style="--i:${i}" aria-label="${esc(g.name)}">
+    <button class="exhibit ${rarityHalo(points(g.appid))}" data-appid="${g.appid}" type="button" style="--i:${i}" aria-label="${esc(g.name)}">
       <span class="exhibit-stage">
         <span class="exhibit-light" aria-hidden="true"></span>
         ${boxHTML(g.appid, g.name)}
@@ -39,7 +39,7 @@ function exhibit(p, i, { rarity, pill, isRelic }) {
 const LAMP =
   '<div class="lamp hall-lamp" aria-hidden="true"><div class="lamp-cone"><div class="lamp-beam"></div></div><div class="lamp-bulb"></div></div>';
 
-export function hallHTML({ steamid, player, platinum, rarity, rarityLabel, isRelic, pill, scanning }) {
+export function hallHTML({ steamid, player, platinum, points, isRelic, pill, scanning }) {
   const back = `<div class="hall-top"><a class="btn" href="#/u/${steamid}">← Retour au profil</a></div>`;
 
   if (scanning) {
@@ -65,7 +65,7 @@ export function hallHTML({ steamid, player, platinum, rarity, rarityLabel, isRel
   const n = platinum.length;
   const hours = platinum.reduce((t, p) => t + p.g.playtime, 0);
   const avgHunt = platinum.reduce((t, p) => t + p.hunt, 0) / n;
-  const rarest = platinum.filter((p) => rarity.has(p.g.appid)).sort((x, y) => rarity.get(x.g.appid) - rarity.get(y.g.appid))[0];
+  const best = platinum.filter((p) => points(p.g.appid) != null).sort((x, y) => points(y.g.appid) - points(x.g.appid))[0];
   const first = platinum.at(-1);
 
   const byYear = new Map();
@@ -85,7 +85,7 @@ export function hallHTML({ steamid, player, platinum, rarity, rarityLabel, isRel
       <div class="hall-stats">
         ${hours ? `<span><b>${nf.format(Math.round(hours / 60))} h</b>investies dans ces platines</span>` : ''}
         <span><b>${fmtDuration(avgHunt)}</b>de chasse en moyenne</span>
-        ${rarest ? `<span><b>${rarityLabel(rarest.g.appid)}</b>pour le plus rare</span>` : ''}
+        ${best ? `<span><b>${fmtPoints(points(best.g.appid))}</b>pour le plus rare</span>` : ''}
         <span><b>${fmtDate(first.date)}</b>premier platine</span>
       </div>
     </header>
@@ -94,7 +94,7 @@ export function hallHTML({ steamid, player, platinum, rarity, rarityLabel, isRel
         ([year, list]) => `
       <section class="vitrine">
         <h2 class="vitrine-title"><span>${year}</span><small>${list.length} platine${list.length > 1 ? 's' : ''}</small></h2>
-        <div class="exhibits">${list.map((p) => exhibit(p, i++, { rarity, pill, isRelic })).join('')}</div>
+        <div class="exhibits">${list.map((p) => exhibit(p, i++, { points, pill, isRelic })).join('')}</div>
       </section>`,
       )
       .join('')}`;

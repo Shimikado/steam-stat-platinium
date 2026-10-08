@@ -35,11 +35,27 @@ export const gameIconUrl = (g) =>
 
 
 /** Tranches de rareté d'un platine, d'après le % maximum de joueurs l'ayant obtenu. */
-/** Palier du halo de rareté (couleur et intensité, voir rustic.css) : 'rare-1' (≤ 1 %) … 'rare-4'. */
-export function rarityHalo(p) {
-  if (p == null) return '';
-  return p <= 1 ? 'rare-1' : p <= 5 ? 'rare-2' : p <= 20 ? 'rare-3' : 'rare-4';
+/**
+ * Rareté d'un platine d'après les points Steam Hunters qu'il rapporte (somme des points de ses succès,
+ * d'autant plus élevés qu'ils sont rares). Seuils fixes : un palier veut dire la même chose sur tous les profils.
+ */
+export const VALUE_TIERS = [
+  { id: 'ultra', label: 'Ultra rare', min: 60000, halo: 'rare-1' },
+  { id: 'rare', label: 'Rare', min: 20000, halo: 'rare-2' },
+  { id: 'uncommon', label: 'Peu commun', min: 5000, halo: 'rare-3' },
+  { id: 'common', label: 'Commun', min: 0, halo: 'rare-4' },
+];
+
+export function valueTier(points) {
+  if (points == null) return null;
+  return VALUE_TIERS.find((t) => points >= t.min);
 }
+
+/** Palier du halo de rareté (couleur et intensité, voir rustic.css) : 'rare-1' (ultra rare) … 'rare-4'. */
+export const rarityHalo = (points) => valueTier(points)?.halo ?? '';
+
+/** « 61,3 k pts » */
+export const fmtPoints = (points) => `${fmtCompact(points)} pts`;
 
 export function rarityTier(p) {
   if (p == null) return null;

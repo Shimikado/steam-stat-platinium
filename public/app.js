@@ -15,8 +15,9 @@ import {
   getJSON,
   artImg,
   gameIconUrl,
-  rarityTier,
   rarityHalo,
+  valueTier,
+  fmtPoints,
   fmtRarity,
   fmtCompact,
   DIFFICULTY_TIERS,
@@ -253,9 +254,7 @@ function setAmbient(appids) {
 function ambientSources() {
   const plats = compute().platinum;
   const isPlat = new Set(plats.map((p) => p.g.appid));
-  const rarest = plats
-    .filter((p) => state.rarity.has(p.g.appid))
-    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+  const rarest = mostValuable(plats);
   const mostPlayed = [...state.profile.games].sort((a, b) => b.playtime - a.playtime)[0];
   return [...[...state.pins].filter((id) => isPlat.has(id)), plats[0]?.g.appid, rarest?.g.appid, mostPlayed?.appid];
 }
@@ -735,7 +734,7 @@ function rankOf(count) {
   return { ...RANKS[i], next: RANKS[i + 1] ?? null };
 }
 
-const ultraCount = (s) => s.platinum.filter((x) => state.rarity.get(x.g.appid) <= 5).length;
+const ultraCount = (s) => s.platinum.filter((x) => valueTier(platPoints(x.g.appid))?.id === 'ultra').length;
 
 let lastRankKey = '';
 function renderRank(s) {
@@ -798,8 +797,8 @@ async function loadDifficulty(token) {
 let lastTierKey = '';
 function renderTiers(s) {
   const el = $('#tiers');
-  const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null && !state.dlcBlocked.has(x.g.appid));
-  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${[...state.dlcBlocked]}|${[...state.goals]}|${[...state.tierOpen]}|${state.hunters.size}`;
+  const games = s.progress.filter((x) => state.diff.get(x.g.appid)?.hardest != null && !shelved(x.g.appid));
+  const key = `${state.scan.running}|${state.diffScan.running}|${games.length}|${state.diff.size}|${[...state.dlcBlocked]}|${[...state.goals]}|${[...state.tierOpen]}|${state.hunters.size}|${state.score?.relics?.length}`;
   if (key === lastTierKey) return;
   lastTierKey = key;
 
@@ -892,8 +891,7 @@ function renderHall(s) {
     steamid: state.steamid,
     player: state.profile.player,
     platinum: s.platinum,
-    rarity: state.rarity,
-    rarityLabel,
+    points: platPoints,
     isRelic,
     pill: rarityPill,
     scanning,
@@ -995,11 +993,28 @@ const medianLabel = (appid) => {
   return h?.median ? `≈ ${fmtHours(h.median)}` : null;
 };
 const isImpossible = (appid) => (state.hunters.get(appid)?.unobtainable ?? 0) > 0;
+/**
+ * Jeu qu'on ne peut plus platiner : il lui reste des succès impossibles. Les reliques déjà débloquées
+ * (succès devenus impossibles après que le joueur les a eus) ne bloquent rien.
+ */
+const unfinishable = (appid) => {
+  const n = state.hunters.get(appid)?.unobtainable ?? 0;
+  if (!n) return false;
+  const held = state.score?.relics?.find((r) => r.appid === appid)?.count ?? 0;
+  return held < n;
+};
+/** Jeux écartés des recommandations, de la tier list et des onglets « en cours » : DLC requis ou platine impossible. */
+const shelved = (appid) => state.dlcBlocked.has(appid) || unfinishable(appid);
+
+/** Points Steam Hunters que rapporte un platine : ils définissent sa rareté (undefined tant qu'inconnus). */
+const platPoints = (appid) => state.hunters.get(appid)?.points ?? undefined;
+const hasPoints = (appid) => platPoints(appid) != null;
+/** Le platine qui rapporte le plus de points parmi la liste. */
+const mostValuable = (list) => list.filter((p) => hasPoints(p.g.appid)).sort((x, y) => platPoints(y.g.appid) - platPoints(x.g.appid))[0];
+
 /** Platine « relique » : le joueur l'a, mais certains de ses succès ne peuvent plus être débloqués. */
 const isRelic = (appid) => isImpossible(appid) && statusOf(state.profile.games.find((g) => g.appid === appid)).kind === 'platinum';
 
-/** « 0,4 % » (part réelle chez les chasseurs) ou « ≤ 3 % » (majorant d'après le succès le plus rare). */
-const rarityLabel = (appid) => `${state.rarityHunt.has(appid) ? '' : '≤ '}${fmtRarity(state.rarity.get(appid))}`;
 
 // ---------------------------------------------------------------- prochain platine
 
@@ -1018,7 +1033,7 @@ function renderNext() {
 }
 
 async function loadNext(token) {
-  const progress = compute().progress.filter((x) => !state.dlcBlocked.has(x.g.appid) && !isImpossible(x.g.appid));
+  const progress = compute().progress.filter((x) => !shelved(x.g.appid));
   const next = await findNextPlatinums(state.steamid, progress, state.diff);
   if (token !== state.token) return;
   state.next = next;
@@ -1190,9 +1205,7 @@ const pinButton = (appid) => {
 function shareCardData() {
   const s = compute();
   const pinned = [...state.pins].map((id) => s.platinum.find((p) => p.g.appid === id)).filter(Boolean);
-  const byRarity = s.platinum
-    .filter((p) => state.rarity.has(p.g.appid))
-    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid));
+  const byRarity = s.platinum.filter((p) => hasPoints(p.g.appid)).sort((x, y) => platPoints(y.g.appid) - platPoints(x.g.appid));
   const rest = (byRarity.length ? byRarity : s.platinum).filter((p) => !state.pins.has(p.g.appid));
   return {
     player: state.profile.player,
@@ -1201,8 +1214,7 @@ function shareCardData() {
     featured: [...pinned, ...rest].slice(0, 3).map((p) => ({
       appid: p.g.appid,
       name: p.g.name,
-      rarity: state.rarity.get(p.g.appid) ?? null,
-      rarityLabel: state.rarity.has(p.g.appid) ? rarityLabel(p.g.appid) : null,
+      points: platPoints(p.g.appid) ?? null,
       pinned: state.pins.has(p.g.appid),
     })),
     // La carte ne parle que des platines : rien sur le reste de la bibliothèque.
@@ -1213,15 +1225,15 @@ function shareCardData() {
 function platinumStats(s) {
   const minutes = s.platinum.reduce((t, p) => t + p.g.playtime, 0);
   const achievements = s.platinum.reduce((t, p) => t + p.a.total, 0);
-  const rarities = s.platinum.map((p) => state.rarity.get(p.g.appid)).filter((r) => r != null);
-  const ultra = rarities.filter((r) => r <= 5).length;
+  const ultra = ultraCount(s);
+  const best = mostValuable(s.platinum);
   return [
     !state.profile.playtimeHidden && minutes ? [`${nf.format(Math.round(minutes / 60))} h`, 'pour les platiner'] : null,
     achievements ? [nf.format(achievements), 'succès décrochés'] : null,
     ultra
       ? [nf.format(ultra), ultra > 1 ? 'platines ultra-rares' : 'platine ultra-rare']
-      : rarities.length
-        ? [rarityLabel(s.platinum.filter((p) => state.rarity.has(p.g.appid)).sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0].g.appid), 'pour le plus rare']
+      : best
+        ? [fmtPoints(platPoints(best.g.appid)), 'pour le plus rare']
         : null,
   ].filter(Boolean);
 }
@@ -1230,7 +1242,7 @@ function shareCard() {
   const s = compute();
   // Choix proposés : du plus rare au plus commun, pour retrouver vite ses platines de prestige.
   const choices = [...s.platinum]
-    .sort((x, y) => (state.rarity.get(x.g.appid) ?? 101) - (state.rarity.get(y.g.appid) ?? 101))
+    .sort((x, y) => (platPoints(y.g.appid) ?? -1) - (platPoints(x.g.appid) ?? -1))
     .map((p) => ({ appid: p.g.appid, name: p.g.name }));
   // Le choix des platines épinglés n'est proposé que sur son propre profil.
   openShareCard(
@@ -1439,14 +1451,12 @@ const SPARKS = [
 ];
 
 function rarityPill(appid, { long = false } = {}) {
-  const p = state.rarity.get(appid);
-  const tier = rarityTier(p);
+  const points = platPoints(appid);
+  const tier = valueTier(points);
   if (!tier) return '';
-  const hunt = state.rarityHunt.has(appid);
-  const text = long ? `${tier.label} · ${rarityLabel(appid)} des ${hunt ? 'chasseurs' : 'joueurs'}` : rarityLabel(appid);
-  const title = hunt
-    ? `${fmtRarity(p)} des chasseurs Steam Hunters qui ont commencé ce jeu l’ont platiné`
-    : `Au plus ${fmtRarity(p)} des joueurs ont platiné ce jeu (d’après son succès le plus rare)`;
+  const text = long ? `${tier.label} · ${nf.format(points)} pts` : fmtPoints(points);
+  const share = state.rarityHunt.has(appid) ? ` · ${fmtRarity(state.rarity.get(appid))} des chasseurs l’ont platiné` : '';
+  const title = `Ce platine rapporte ${nf.format(points)} points Steam Hunters : plus ses succès sont rares, plus il en rapporte${share}`;
   return `<span class="rarity-pill tier-${tier.id}" title="${title}">${text}</span>`;
 }
 
@@ -1470,13 +1480,11 @@ function featureCard(label, { g, a, date, num }) {
 }
 
 /**
- * Halo de rareté de chaque platine : la couleur et l'intensité dépendent de la part de joueurs l'ayant obtenu.
- * Renvoie une Map appid -> 'rare-1' (≤ 1 %) | 'rare-2' (≤ 5 %) | 'rare-3' (≤ 20 %) | 'rare-4'.
+ * Halo de rareté de chaque platine : couleur et intensité selon les points qu'il rapporte.
+ * Renvoie une Map appid -> 'rare-1' (ultra rare) | 'rare-2' | 'rare-3' | 'rare-4'.
  */
 function rarityHighlights(s) {
-  return new Map(
-    s.platinum.filter((p) => state.rarity.has(p.g.appid)).map((p) => [p.g.appid, rarityHalo(state.rarity.get(p.g.appid))]),
-  );
+  return new Map(s.platinum.filter((p) => hasPoints(p.g.appid)).map((p) => [p.g.appid, rarityHalo(platPoints(p.g.appid))]));
 }
 
 let lastPlatKey = '';
@@ -1488,7 +1496,7 @@ function renderPlatinum(s) {
   const feat = $('#platFeature');
 
   // On ne reconstruit la vitrine que si son contenu change, pour ne pas casser les animations en cours.
-  const key = `${state.scan.running}|${s.platinum.map((x) => x.g.appid).join(',')}|${state.rarity.size}|${state.newPlats.size}|${[...state.pins]}`;
+  const key = `${state.scan.running}|${s.platinum.map((x) => x.g.appid).join(',')}|${state.hunters.size}|${state.newPlats.size}|${[...state.pins]}`;
   if (key === lastPlatKey) return;
   lastPlatKey = key;
 
@@ -1502,9 +1510,7 @@ function renderPlatinum(s) {
     feat.innerHTML = '';
   } else {
     const latest = s.platinum[0];
-    const rarest = s.platinum
-      .filter((x) => state.rarity.has(x.g.appid))
-      .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+    const rarest = mostValuable(s.platinum);
     feat.innerHTML =
       featureCard('Dernier platine', latest) + (rarest && rarest !== latest ? featureCard('Ton platine le plus rare', rarest) : '');
   }
@@ -1515,7 +1521,7 @@ function renderPlatinum(s) {
   const highlight = rarityHighlights(s);
   el.innerHTML = `<div class="shelf">${shelf
     .map(({ g, date, num }) => {
-      const tier = rarityTier(state.rarity.get(g.appid));
+      const tier = valueTier(platPoints(g.appid));
       const extra = `
         <span class="plat-badge" title="Platiné">${icon('trophy')}</span>
         ${rarityPill(g.appid)}
@@ -1548,7 +1554,7 @@ function renderPlatinum(s) {
 
 
 function renderNearly(s) {
-  const list = s.progress.filter((x) => x.a.percent >= 75 && !state.dlcBlocked.has(x.g.appid)).slice(0, 12);
+  const list = s.progress.filter((x) => x.a.percent >= 75 && !shelved(x.g.appid)).slice(0, 12);
   const el = $('#nearly');
   if (!list.length) {
     el.innerHTML = `<div class="empty">${state.scan.running ? 'Analyse en cours…' : 'Aucun jeu à plus de 75 % pour l’instant.'}</div>`;
@@ -1757,16 +1763,12 @@ function renderFacts(s) {
     });
   }
 
-  const rarest = s.platinum
-    .filter((p) => state.rarity.has(p.g.appid))
-    .sort((x, y) => state.rarity.get(x.g.appid) - state.rarity.get(y.g.appid))[0];
+  const rarest = mostValuable(s.platinum);
   if (rarest) {
     facts.push({
       label: 'Platine le plus rare',
       value: rarest.g.name,
-      hint: state.rarityHunt.has(rarest.g.appid)
-        ? `${fmtRarity(state.rarity.get(rarest.g.appid))} des chasseurs l’ont platiné`
-        : `au plus ${fmtRarity(state.rarity.get(rarest.g.appid))} des joueurs l’ont platiné`,
+      hint: `il rapporte ${nf.format(platPoints(rarest.g.appid))} points`,
       appid: rarest.g.appid,
     });
   }
@@ -1817,8 +1819,8 @@ const FILTERS = [
   { id: 'all', label: 'Tous', test: () => true },
   { id: 'platinum', label: 'Platinés', test: (g) => g.status.kind === 'platinum' },
   { id: 'goals', label: 'Objectifs', test: (g) => state.goals.has(g.appid) && g.status.kind !== 'platinum', hideWhen: () => !state.goals.size },
-  { id: 'progress', label: 'En cours', test: (g) => g.status.kind === 'progress' && !state.dlcBlocked.has(g.appid) },
-  { id: 'notstarted', label: 'Succès à 0 %', test: (g) => g.status.kind === 'notstarted' && !state.dlcBlocked.has(g.appid) },
+  { id: 'progress', label: 'En cours', test: (g) => g.status.kind === 'progress' && !shelved(g.appid) },
+  { id: 'notstarted', label: 'Succès à 0 %', test: (g) => g.status.kind === 'notstarted' && !shelved(g.appid) },
   { id: 'none', label: 'Sans succès', test: (g) => g.status.kind === 'none' },
   { id: 'never', label: 'Jamais lancés', test: (g) => g.playtime === 0, hideWhen: () => state.profile.playtimeHidden },
   { id: 'dlc', label: 'Bloqués (DLC)', test: (g) => state.dlcBlocked.has(g.appid) && g.status.kind !== 'platinum', hideWhen: () => !state.dlcBlocked.size },
@@ -1831,8 +1833,8 @@ const SORTS = {
   recent: (a, b) => b.lastPlayed - a.lastPlayed,
   // Platines restants les plus accessibles d'abord ; platinés et jeux sans données en fin de liste.
   accessible: (a, b) => {
-    const da = a.status.kind === 'platinum' || state.dlcBlocked.has(a.appid) ? null : state.diff.get(a.appid);
-    const db = b.status.kind === 'platinum' || state.dlcBlocked.has(b.appid) ? null : state.diff.get(b.appid);
+    const da = a.status.kind === 'platinum' || shelved(a.appid) ? null : state.diff.get(a.appid);
+    const db = b.status.kind === 'platinum' || shelved(b.appid) ? null : state.diff.get(b.appid);
     return (db?.hardest ?? -1) - (da?.hardest ?? -1) || (da?.remaining ?? 1e9) - (db?.remaining ?? 1e9) || b.playtime - a.playtime;
   },
   name: (a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }),
@@ -1893,7 +1895,7 @@ function gameCard(g) {
   }
 
   const blocked = st.kind !== 'platinum' && state.dlcBlocked.has(g.appid);
-  const tier = !blocked && (st.kind === 'progress' || st.kind === 'notstarted') ? difficultyTier(state.diff.get(g.appid)?.hardest) : null;
+  const tier = !blocked && !unfinishable(g.appid) && (st.kind === 'progress' || st.kind === 'notstarted') ? difficultyTier(state.diff.get(g.appid)?.hardest) : null;
   const added = state.added.get(g.appid);
   const foot = [
     blocked ? `<span class="dlc-tag">${icon('lock')} DLC requis</span>` : '',
@@ -2105,7 +2107,7 @@ function gameNotices(g, st) {
   if (relicHunt?.unobtainable) {
     out.push(`<div class="notice-relic"><span class="relic-seal">Relique</span><span><strong>Platine de collection</strong> : ${relicHunt.unobtainable} succès ne peu${relicHunt.unobtainable > 1 ? 'vent' : 't'} plus être débloqué${relicHunt.unobtainable > 1 ? 's' : ''} aujourd’hui. Plus personne ne pourra décrocher ce platine.</span></div>`);
   }
-  if (st.kind !== 'platinum' && hunt?.unobtainable) {
+  if (st.kind !== 'platinum' && unfinishable(g.appid)) {
     out.push(`<div class="notice-dlc is-on">${icon('lock')}<span><strong>${hunt.unobtainable} succès impossible${hunt.unobtainable > 1 ? 's' : ''} à obtenir</strong> : le platine n’est plus faisable.</span></div>`);
   }
   if (canMark() && (st.kind === 'progress' || st.kind === 'notstarted')) {

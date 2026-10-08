@@ -1,5 +1,5 @@
 import { artUrls } from './art.js';
-import { esc, icon, nf, fmtRarity, artImg } from './utils.js';
+import { esc, icon, nf, artImg, fmtPoints, rarityHalo } from './utils.js';
 
 // Carte de chasseur partageable (PNG 1200×630, le format des aperçus Discord/Twitter).
 
@@ -16,13 +16,13 @@ const BRASS = ['#f8e2a8', '#d9a75a', '#9c6a30'];
 const DISPLAY = 'Fraunces, Georgia, serif';
 
 // Même échelle que le halo de rareté de l'étagère (rustic.css) : cuivre → ambre → or → or blanc.
-function halo(rarity) {
-  if (rarity == null) return null;
-  if (rarity <= 1) return { rgb: '255,232,178', a: 0.95 };
-  if (rarity <= 5) return { rgb: '255,196,96', a: 0.7 };
-  if (rarity <= 20) return { rgb: '232,160,80', a: 0.5 };
-  return { rgb: '196,128,84', a: 0.32 };
-}
+const HALOS = {
+  'rare-1': { rgb: '255,232,178', a: 0.95 },
+  'rare-2': { rgb: '255,196,96', a: 0.7 },
+  'rare-3': { rgb: '232,160,80', a: 0.5 },
+  'rare-4': { rgb: '196,128,84', a: 0.32 },
+};
+const halo = (points) => HALOS[rarityHalo(points)] ?? null;
 
 // La police du canvas n'a pas toujours l'espace fine insécable du français : on la remplace par une espace normale.
 const plain = (text) => String(text).replace(/[  ]/g, ' ');
@@ -299,7 +299,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
     ctx.fillText(
       featured.some((f) => f.pinned)
         ? 'MES PLATINES À L’HONNEUR'
-        : featured.some((f) => f.rarity != null)
+        : featured.some((f) => f.points != null)
           ? 'MES PLATINES LES PLUS RARES'
           : 'MES DERNIERS PLATINES',
       nx - 4,
@@ -382,7 +382,7 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   featured.forEach((f, i) => {
     const x = boxX(i);
     const y = plankY - bh - 2;
-    const h = halo(f.rarity);
+    const h = halo(f.points);
     if (h) {
       ctx.save();
       ctx.filter = 'blur(20px)';
@@ -412,8 +412,8 @@ async function drawCard({ player, rank, plats, stats, featured }) {
   // Étiquettes de rareté sur le chant de la planche, noms en dessous
   featured.forEach((f, i) => {
     const cx = boxX(i) + bw / 2;
-    if (f.rarity != null) {
-      const label = plain(f.rarityLabel ?? `≤ ${fmtRarity(f.rarity)}`);
+    if (f.points != null) {
+      const label = plain(fmtPoints(f.points));
       ctx.font = `700 15px ${DISPLAY}`;
       paperTag(ctx, cx, plankY + 6, ctx.measureText(label).width + 18, 21, i % 2 ? 1.5 : -1.5, (c) => {
         c.fillStyle = INK;
