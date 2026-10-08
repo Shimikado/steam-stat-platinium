@@ -966,7 +966,10 @@ const HUNT_MIN_STARTED = 30; // en dessous, la part de chasseurs ayant platiné 
 
 async function loadHunters(token) {
   const s = compute();
-  const ids = [...s.platinum, ...s.progress].map((x) => x.g.appid).filter((id) => !state.hunters.has(id));
+  // Tous les jeux à succès (100 par requête) : l'onglet « Succès impossibles » doit être complet.
+  const ids = [...s.platinum, ...s.progress, ...state.profile.games.filter((g) => g.hasStats).map((g) => ({ g }))]
+    .map((x) => x.g.appid)
+    .filter((id, i, all) => !state.hunters.has(id) && all.indexOf(id) === i);
   for (let i = 0; i < ids.length; i += 300) {
     try {
       const res = await getJSON(`/api/hunters?appids=${ids.slice(i, i + 300).join(',')}`);
@@ -1362,6 +1365,7 @@ function renderFriendList(q) {
           const tip = [
             f.name,
             f.game ? `En jeu : ${f.game}` : f.online ? 'En ligne' : 'Hors ligne',
+            sum?.score != null ? `${nf.format(sum.score)} points` : '',
             sum ? `${sum.platinum} platine${sum.platinum > 1 ? 's' : ''}` : '',
             f.isPublic ? '' : 'Profil privé',
           ]
@@ -1371,7 +1375,13 @@ function renderFriendList(q) {
           <a class="friend ${f.isPublic ? '' : 'is-private'}" href="#/u/${f.steamid}" data-tip="${esc(tip)}">
             <span class="friend-avatar status-${status}">
               <img src="${esc(f.avatar)}" data-fallback="" alt="" loading="lazy">
-              ${sum ? `<span class="friend-plat tone-${rankOf(sum.platinum).tone}">${icon('trophy')}${sum.platinum}</span>` : ''}
+              ${
+                sum?.score != null
+                  ? `<span class="friend-plat friend-points">${fmtCompact(sum.score)}</span>`
+                  : sum
+                    ? `<span class="friend-plat tone-${rankOf(sum.platinum).tone}">${icon('trophy')}${sum.platinum}</span>`
+                    : ''
+              }
             </span>
             <span class="friend-name">${esc(f.name)}</span>
             <span class="friend-game">${f.game ? esc(f.game) : f.isPublic ? '' : 'Privé'}</span>
@@ -1381,7 +1391,7 @@ function renderFriendList(q) {
     : `<p class="friends-empty">Aucun ami ne correspond.</p>`;
 }
 
-/** Classement des amis déjà analysés, avec le profil affiché, par nombre de platines. */
+/** Classement des amis déjà analysés, avec le profil affiché : au score de chasseur, puis au nombre de platines. */
 function renderRanking() {
   const self = state.summaries.get(state.steamid);
   const rows = [
@@ -1407,14 +1417,13 @@ function renderRanking() {
             <span class="ranking-name">${esc(r.name)}</span>
             <span class="ranking-sub">
               <span class="rank-chip tone-${rank.tone}">${rank.name}</span>
-              ${r.score != null ? `<span>${icon('trophy')} ${nf.format(r.platinum)} platine${r.platinum > 1 ? 's' : ''}</span>` : ''}
-              ${r.score == null && r.rarestPct != null ? `<span>plus rare ≤ ${fmtRarity(r.rarestPct)}</span>` : ''}
+              <span>${icon('trophy')} ${nf.format(r.platinum)} platine${r.platinum > 1 ? 's' : ''}</span>
             </span>
           </span>
           ${
             r.score != null
               ? `<span class="ranking-score" title="${nf.format(r.score)} points Steam Hunters">${fmtCompact(r.score)}<small>pts</small></span>`
-              : `<span class="ranking-score">${icon('trophy')}${nf.format(r.platinum)}</span>`
+              : `<span class="ranking-score is-unknown" title="Score pas encore calculé : ouvre ce profil pour le mettre à jour">—<small>pts</small></span>`
           }
         </a>
       </li>`;
@@ -1810,6 +1819,7 @@ const FILTERS = [
   { id: 'none', label: 'Sans succès', test: (g) => g.status.kind === 'none' },
   { id: 'never', label: 'Jamais lancés', test: (g) => g.playtime === 0, hideWhen: () => state.profile.playtimeHidden },
   { id: 'dlc', label: 'Bloqués (DLC)', test: (g) => state.dlcBlocked.has(g.appid) && g.status.kind !== 'platinum', hideWhen: () => !state.dlcBlocked.size },
+  { id: 'impossible', label: 'Succès impossibles', test: (g) => isImpossible(g.appid), hideWhen: () => !state.profile.games.some((g) => isImpossible(g.appid)) },
 ];
 
 const SORTS = {
@@ -1887,6 +1897,11 @@ function gameCard(g) {
     st.kind !== 'platinum' && state.goals.has(g.appid) ? `<span class="goal-tag">${icon('star')} Objectif</span>` : '',
     tier ? `<span class="difficulty diff-${tier.id}">${tier.label}</span>` : '',
     added ? `<span class="added-tag">${addedLabel(added)}</span>` : '',
+    isImpossible(g.appid)
+      ? st.kind === 'platinum'
+        ? '<span class="relic-seal" title="Platine que plus personne ne peut décrocher">Relique</span>'
+        : `<span class="ach-impossible" title="Succès qui ne peuvent plus être débloqués">${state.hunters.get(g.appid).unobtainable} impossible${state.hunters.get(g.appid).unobtainable > 1 ? 's' : ''}</span>`
+      : '',
   ].join('');
 
   const cls = [st.kind === 'platinum' && 'is-plat', g.playtime === 0 && !state.profile.playtimeHidden && 'is-never'].filter(Boolean).join(' ');

@@ -1329,3 +1329,18 @@ body::after {
   right: -10px;
   transform: rotate(8deg);
 }
+
+/* Amis et classement : le score de chasseur passe avant le nombre de platines */
+.friend-plat.friend-points {
+  background: linear-gradient(180deg, #f8e2a8, #d9a75a 55%, #9c6a30);
+  color: var(--ink);
+}
+
+.ranking-score.is-unknown {
+  color: var(--muted);
+}
+
+.game-foot .relic-seal,
+.game-foot .ach-impossible {
+  font-size: 10.5px;
+}
