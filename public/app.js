@@ -1328,14 +1328,17 @@ async function loadScore(token, round = 0) {
     const sum = state.summaries.get(state.steamid);
     if (sum) state.summaries.set(state.steamid, { ...sum, score: res.score });
     if ($('#friendsBody')) renderFriends();
-    // Des jeux sont encore estimés : leurs points arrivent en arrière-plan, on affine régulièrement.
-    if (res.estimated && round < SCORE_ROUNDS) setTimeout(() => token === state.token && loadScore(token, round + 1), 90_000);
+    // Des jeux sont encore estimés : on revient quand le serveur prévoit d'avoir leurs points.
+    if (res.estimated && round < SCORE_ROUNDS) {
+      const wait = Math.min(10 * 60_000, Math.max(30_000, (res.etaMs ?? 0) + 5_000));
+      setTimeout(() => token === state.token && loadScore(token, round + 1), wait);
+    }
   } catch {
     if (token === state.token && !round) state.score = null;
   }
   if (token === state.token) update();
 }
-const SCORE_ROUNDS = 20;
+const SCORE_ROUNDS = 6;
 
 function renderFriends() {
   const known = state.friends.filter((f) => state.summaries.has(f.steamid)).length;

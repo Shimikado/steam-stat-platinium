@@ -67,6 +67,8 @@ Les tables sont créées au démarrage. Sans base, l'app garde son fonctionnemen
 - Les succès d'un jeu ne sont redemandés que si le jeu a été rejoué depuis : son temps de jeu ou sa date de dernière session ont changé. Sinon le cache reste valable jusqu'à 30 jours. Si le joueur masque son temps de jeu, ce repère n'existe pas et le cache dure 6 h.
 - Pourcentages mondiaux : 7 jours de cache. Liste des succès d'un jeu : 30 jours. Liste d'amis : 6 h (les statuts en ligne restent rafraîchis toutes les 5 min).
 - La difficulté n'est évaluée que pour les jeux commencés.
+- Score de chasseur et résumé du classement : calculés uniquement depuis le cache (succès, profil allégé gardé 2 jours en base), donc sans appel Steam, même après un redémarrage. Les lectures en base sont groupées : une requête par type de données au lieu d'une par jeu.
+- Steam Hunters : 100 jeux par requête pour les statistiques et les points des platines ; points succès par succès seulement pour les jeux entamés qui rapportent des points, une requête toutes les 2,5 s, en respectant ses pauses (429). La file d'attente est sauvegardée en base et reprend au réveil du serveur ; le navigateur ne redemande le score qu'au moment où la file prévoit d'avoir fini.
 - Compteur journalier consultable sur `/api/usage`. Au-delà de `STEAM_DAILY_BUDGET` (95 000 par défaut), les nouveaux appels sont refusés pour ne pas faire bloquer la clé.
 
 ## Déploiement sur Render (gratuit)

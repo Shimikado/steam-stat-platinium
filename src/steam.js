@@ -23,7 +23,21 @@ const caches = {
   schema: new TtlCache({ ttlMs: 30 * DAY, file: path.join(CACHE_DIR, 'schema.json'), ns: 'schema' }),
   global: new TtlCache({ ttlMs: 7 * DAY, file: path.join(CACHE_DIR, 'global.json'), ns: 'global' }),
   friendList: new TtlCache({ ttlMs: 6 * HOUR, ns: 'friendlist' }),
+  // Version allégée du profil (nom, avatar, jeux à succès), gardée 2 jours en base : le score et le
+  // résumé du classement s'en contentent, sans rappeler Steam ni subir un redémarrage du serveur.
+  profileLite: new TtlCache({ ttlMs: 2 * DAY, ns: 'profilelite' }),
 };
+
+/** Listes de succès en cache des jeux donnés, lues en une fois : [[appid, liste]]. */
+async function cachedLists(steamid, games) {
+  const cached = await Promise.all(games.map((g) => caches.achievements.get(`${steamid}:${g.appid}`)));
+  return games.flatMap((g, i) => (cached[i] === undefined ? [] : [[g.appid, cached[i].l ?? []]]));
+}
+
+/** Profil suffisant pour les calculs faits depuis le cache (score, résumé) : aucun appel Steam s'il est connu. */
+async function getProfileLite(steamid) {
+  return (await caches.profile.get(steamid)) ?? (await caches.profileLite.get(steamid)) ?? getProfile(steamid);
+}
 
 async function call(endpoint, params = {}, { allowError = false } = {}) {
   const key = process.env.STEAM_API_KEY;
@@ -139,6 +153,10 @@ export async function getProfile(steamid, { refresh = false } = {}) {
   };
 
   caches.profile.set(steamid, profile);
+  caches.profileLite.set(steamid, {
+    player: { name: profile.player.name, avatar: profile.player.avatar },
+    games: games.filter((g) => g.hasStats).map((g) => ({ appid: g.appid, hasStats: true })),
+  });
   return profile;
 }
 
@@ -329,12 +347,13 @@ async function shFetch(path) {
 export async function getHunterStats(appids) {
   const out = {};
   const missing = [];
-  for (const appid of appids) {
-    const cached = await hunterCache.get(appid);
+  const cachedAll = await Promise.all(appids.map((appid) => hunterCache.get(appid)));
+  appids.forEach((appid, i) => {
+    const cached = cachedAll[i];
     // Les entrées d'avant le score n'ont pas les points du jeu : on les rafraîchit.
     if (cached === undefined || (cached && cached.points === undefined)) missing.push(appid);
     else out[appid] = cached;
-  }
+  });
 
   for (let i = 0; i < missing.length; i += 100) {
     const ids = missing.slice(i, i + 100);
@@ -394,6 +413,19 @@ export async function getHunterPoints(appid) {
 const SH_GAP_MS = 2500;
 const pointsQueue = new Set();
 let pumping = false;
+// La file est sauvegardée en base : l'hébergeur gratuit met le serveur en veille, elle reprend au réveil.
+const queueStore = new TtlCache({ ttlMs: 14 * DAY, ns: 'shqueue' });
+let queueSaveTimer = null;
+function saveQueue() {
+  clearTimeout(queueSaveTimer);
+  queueSaveTimer = setTimeout(() => queueStore.set('pending', [...pointsQueue]), 5000);
+}
+
+/** Relance au démarrage les points qui restaient à récupérer. */
+export async function resumeHunterQueue() {
+  const pending = await queueStore.get('pending');
+  if (pending?.length) queuePoints(pending);
+}
 
 function queuePoints(appids, { urgent = false } = {}) {
   if (urgent) {
@@ -403,6 +435,7 @@ function queuePoints(appids, { urgent = false } = {}) {
   } else {
     for (const id of appids) pointsQueue.add(id);
   }
+  saveQueue();
   pumpPoints();
 }
 
@@ -413,7 +446,12 @@ async function pumpPoints() {
     while (pointsQueue.size) {
       if (shPaused()) await new Promise((ok) => setTimeout(ok, shPausedUntil - Date.now() + 500));
       const [appid] = pointsQueue;
-      if ((await pointsCache.get(appid)) !== undefined || (await fetchHunterPoints(appid)) !== undefined) pointsQueue.delete(appid);
+      if ((await pointsCache.get(appid)) !== undefined) {
+        pointsQueue.delete(appid); // déjà connu (autre profil, ou file reprise après redémarrage) : pas de pause
+        continue;
+      }
+      if ((await fetchHunterPoints(appid)) !== undefined) pointsQueue.delete(appid);
+      saveQueue();
       await new Promise((ok) => setTimeout(ok, SH_GAP_MS));
     }
   } finally {
@@ -430,20 +468,31 @@ async function pumpPoints() {
  * Relève aussi les « reliques » : succès débloqués qui ne peuvent plus l'être aujourd'hui.
  * Renvoie null tant que l'analyse des succès ou Steam Hunters ne couvrent pas (presque) tout le profil.
  */
-export async function computeScore(steamid) {
-  const profile = await getProfile(steamid);
-  const games = profile.games.filter((g) => g.hasStats);
-  const lists = [];
-  for (const g of games) {
-    const cached = await caches.achievements.get(`${steamid}:${g.appid}`);
-    if (cached !== undefined) lists.push([g.appid, cached.l ?? []]);
+export function computeScore(steamid) {
+  // Deux demandes simultanées pour le même profil partagent le même calcul.
+  if (!scoreInFlight.has(steamid)) {
+    scoreInFlight.set(steamid, scoreOf(steamid).finally(() => scoreInFlight.delete(steamid)));
   }
+  return scoreInFlight.get(steamid);
+}
+const scoreInFlight = new Map();
+
+async function scoreOf(steamid) {
+  const profile = await getProfileLite(steamid);
+  const games = profile.games.filter((g) => g.hasStats);
+  const lists = await cachedLists(steamid, games);
   if (games.length && lists.length / games.length < 0.9) return null;
 
   // Seuls les jeux où le joueur a débloqué quelque chose rapportent des points.
   const started = lists.filter(([, list]) => list.some(([, achieved]) => achieved === 1));
   const stats = await getHunterStats(started.map(([appid]) => appid));
   if (started.length && started.filter(([appid]) => appid in stats).length / started.length < 0.9) return null;
+
+  // Points succès par succès, lus d'un coup (seuls les jeux entamés ou à reliques en ont besoin).
+  const needPoints = started.filter(([appid, list]) => stats[appid] && (stats[appid].unobtainable || list.some(([, a]) => a !== 1)));
+  const pointsOf = new Map(
+    await Promise.all(needPoints.map(async ([appid]) => [appid, await pointsCache.get(appid)])),
+  );
 
   let score = 0;
   let estimated = 0;
@@ -455,11 +504,11 @@ export async function computeScore(steamid) {
     if (!st) continue; // jeu inconnu de Steam Hunters
     const unlocked = list.filter(([, achieved]) => achieved === 1);
     const platinum = unlocked.length === list.length;
-    const pts = platinum && !st.unobtainable ? null : await pointsCache.get(appid);
+    const pts = pointsOf.get(appid);
 
     if (platinum) score += st.points;
     else if (pts) score += unlocked.reduce((t, [name]) => t + (pts.p[name] ?? 0), 0);
-    else {
+    else if (st.points) {
       score += list.length ? Math.round((st.points * unlocked.length) / list.length) : 0;
       estimated++;
       toFetch.push(appid);
@@ -477,7 +526,11 @@ export async function computeScore(steamid) {
   if (urgent.length) queuePoints(urgent, { urgent: true });
   if (toFetch.length) queuePoints(toFetch);
   relics.sort((x, y) => y.platinum - x.platinum || y.count - x.count);
-  return { steamid, score, estimated, pending: pointsQueue.size, relics };
+  // Délai avant que les points de ce profil soient tous arrivés : le client ne revient qu'à ce moment-là.
+  const queue = [...pointsQueue];
+  const last = Math.max(-1, ...[...toFetch, ...urgent].map((id) => queue.indexOf(id)));
+  const etaMs = last < 0 ? 0 : (last + 1) * SH_GAP_MS + Math.max(0, shPausedUntil - Date.now());
+  return { steamid, score, estimated, etaMs, relics };
 }
 
 // ---------------------------------------------------------------- visuels des jeux
@@ -532,17 +585,14 @@ export async function getArt(appids) {
  * aucun appel à Steam. Renvoie null si la bibliothèque n'a pas été (assez) analysée.
  */
 export async function computeSummary(steamid) {
-  const profile = await getProfile(steamid);
+  const profile = await getProfileLite(steamid);
   const games = profile.games.filter((g) => g.hasStats);
-  let known = 0;
+  const lists = await cachedLists(steamid, games);
+  const known = lists.length;
   const plats = [];
-  for (const g of games) {
-    const cached = await caches.achievements.get(`${steamid}:${g.appid}`);
-    if (cached === undefined) continue;
-    const list = cached.l;
-    known++;
+  for (const [appid, list] of lists) {
     if (list?.length && list.every(([, achieved]) => achieved === 1)) {
-      plats.push({ appid: g.appid, at: Math.max(...list.map(([, , t]) => t || 0)) });
+      plats.push({ appid, at: Math.max(...list.map(([, , t]) => t || 0)) });
     }
   }
   // On ne publie pas un score partiel : il faut que l'analyse soit (quasi) complète.
@@ -550,8 +600,9 @@ export async function computeSummary(steamid) {
 
   const latest = plats.reduce((m, p) => (p.at > (m?.at ?? -1) ? p : m), null);
   let rarest = null;
-  for (const p of plats) {
-    const global = await caches.global.get(p.appid);
+  const globals = await Promise.all(plats.map((p) => caches.global.get(p.appid)));
+  for (const [i, p] of plats.entries()) {
+    const global = globals[i];
     const values = Object.values(global ?? {}).filter(Number.isFinite);
     if (!values.length) continue;
     const pct = Math.min(...values);

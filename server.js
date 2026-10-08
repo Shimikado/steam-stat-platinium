@@ -5,6 +5,7 @@ import { rateLimit } from 'express-rate-limit';
 import {
   SteamError,
   computeScore,
+  resumeHunterQueue,
   computeSummary,
   getAchievementSummaries,
   getArt,
@@ -51,6 +52,7 @@ if (!process.env.STEAM_API_KEY && !DEMO) {
 // Base Postgres facultative (cache persistant, succès ajoutés, marquages synchronisés).
 const DB = DEMO ? false : await initDb();
 if (DB) await loadUsage();
+if (DB) resumeHunterQueue().catch(() => {});
 console.log(DB ? 'Base de données : connectée.' : 'Base de données : aucune (fonctionnement local).');
 
 if (!process.env.SESSION_SECRET && HTTPS) {
